@@ -1,0 +1,49 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>EV_Driver</title> <!-- Título -->
+    <link rel="stylesheet" href="style.css"> <!-- Estilos -->
+</head>
+<body>
+    <div class="container">
+        <header>
+            <h1>EV_Driver</h1>
+            <p>Sistema de Recargas</p>
+        </header>
+
+        <div class="panel">
+            <h2>Estado</h2>
+            <div class="estado">
+                <div><strong>Conductor:</strong> <span id="driver_id">-</span></div>
+                <div><strong>Verificación:</strong> <span id="verificacion_estado" class="espera">Verificando...</span></div>
+                <div><strong>Recarga:</strong> <span id="estado_recarga" class='desactivado'>Inactiva</span></div>
+            </div>
+        </div>
+
+        <div class="panel">
+            <h2>Acciones</h2>
+            <div class="acciones">
+                <input type="text" id="cp_id" placeholder="ID Punto de Carga" class="input">
+                <button onclick="solicitarRecarga()" class="boton_solicitar">Solicitar Recarga</button>
+                <button onclick="finalizarRecarga()" class="boton_finalizar">Finaliza Recarga</button>
+            </div>
+        </div>
+
+        <div class="panel">
+            <h2>Historial de Eventos</h2>
+            <div class="historial">
+                <button onclick="actualizarEventos()" class="boton_actualizar">Actualizar</button>
+                <button onclick="borrarEventos()" class="boton_borrar">Borrar</button>
+            </div>
+
+            <div id="container_eventos" class="eventos">
+                <div class="info_eventos">Cargando Eventos...</div>
+            </div>
+        </div>
+    </div>
+
+    <script src="script.js"></script> <!-- Script -->
+</body>
+</html>
