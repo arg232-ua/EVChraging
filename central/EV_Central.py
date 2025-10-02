@@ -10,12 +10,6 @@ FORMAT = 'utf-8'
 FIN = "FIN"
 MAX_CONEXIONES = 100000
 
-REGISTER_CP = "REGISTER_CP"
-REQUEST_CHARGE = "REQUEST_CHARGE"
-
-END_CHARGE = "END_CHARGE"
-AVISO_RECUPERADO = "AVISO_RECUPERADO"
-
 
 drivers = {}
 
@@ -33,7 +27,7 @@ def handle_client(conn, addr):
 
         
 
-        if msg_primer == REGISTER_CP:
+        if msg_primer == "REGISTER_CP":
             cp_id = msg_partido[1]
             cps[cp_id] = {"ESTADO": "ACTIVO", "conn": conn }
         
@@ -43,7 +37,7 @@ def handle_client(conn, addr):
                 cps[cp_id]["ESTADO"] = "DESCONECTADO"
 
 
-        if msg_primer == REQUEST_CHARGE:
+        if msg_primer == "REQUEST_CHARGE":
             driver_id = msg_partido[1]
             cp_id = msg_partido[2]
             if cps[cp_id]["ESTADO"] == "ACTIVO":
@@ -61,7 +55,7 @@ def handle_client(conn, addr):
             elif cps[cp_id]["ESTADO"] == "DESCONECTADO":
                 conn.send(f"{cp_id} no esta disponible {driver_id} ".encode(FORMAT))
         
-        if msg_primer == END_CHARGE:
+        if msg_primer == "END_CHARGE":
             cp_id = msg_partido[1]
             conn_cp = cps[cp_id]["conn"]
             conn_cp.send(f"Estado del {cp_id} Pasando de estado SUMINISTRANDO a ACTIVO en 4 segundos".encode(FORMAT))
@@ -87,7 +81,7 @@ def handle_client(conn, addr):
                         print(f"[CENTRAL] {cp_id} marcado como AVERIADO.")
 
 
-        if msg_primer == AVISO_RECUPERADO:
+        if msg_primer == "AVISO_RECUPERADO":
             cp_id = msg_partido[1]
             if cp_id in cps["ESTADO"] == "AVERIADO":
                 conn_cp = cps[cp_id]["conn"] 
