@@ -96,4 +96,4 @@ def handle_client(conn, addr):
             elif cp_id in cps:
                 conn_cp.send(f"{cp_id} ha enviado recuperación, pero no estaba en AVERIADO".encode(FORMAT))
 
-        
+         
