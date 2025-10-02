@@ -64,7 +64,25 @@ class EvDriver:
                     else:
                         print(f"Conductor no registrado en la Base de Datos. No puede solicitar recargas.")
                         print("Contacte con un administrador para darse de alta.")
-        
+                elif respuesta.get('estado_carga'):
+                    estado = respuesta.get('estado_carga')
+                    cp_id = respuesta.get('cp_id')
+                    mensaje = respuesta.get('mensaje')
+
+                    if estado == 'recarga_autorizada':
+                        print(f"Recarga autorizada para el conductor {self.driver_id} en el Punto de Carga {cp_id}. {mensaje}")
+                        # Cuando reciba confirmacion de que termina POR ALGUN METODO ########
+                        print("Recarga finalizada.")
+                        # Imprimir ticket
+                        print("Debe esperar 4 segundos para realizar otra recarga")
+                    
+                    else:
+                        print(f"Recarga denegada para el conductor {self.driver_id} en el Punto de Carga {cp_id}. {mensaje}")
+                        time.sleep(4) # Espero 4 segundos antes de volver a intentar una recarga
+                        print("La próxima solicitud de recarga podrá realizarse en 4 segundos")
+                    
+
+
         # Ejecuto en segundo plano
         hilo_escucha = threading.Thread(target=escuchar, daemon=True)
         hilo_escucha.start()
