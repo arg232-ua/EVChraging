@@ -27,7 +27,7 @@ def handle_client(conn, addr):
 
         
 
-        if msg_primer == "REGISTER_CP":
+        if msg_primer == "REGISTRO_CP":
             cp_id = msg_partido[1]
             cps[cp_id] = {"ESTADO": "ACTIVO", "conn": conn }
         
@@ -83,11 +83,53 @@ def handle_client(conn, addr):
 
         if msg_primer == "AVISO_RECUPERADO":
             cp_id = msg_partido[1]
-            if cp_id in cps["ESTADO"] == "AVERIADO":
+            if cp_id in cps[cp_id]["ESTADO"] == "AVERIADO":
                 conn_cp = cps[cp_id]["conn"] 
                 conn_cp.send(f"{cp_id} actualmente disponible".encode(FORMAT))
                 cps[cp_id]["ESTADO"] = "ACTIVO"
             elif cp_id in cps:
                 conn_cp.send(f"{cp_id} ha enviado recuperación, pero no estaba en AVERIADO".encode(FORMAT))
+
+
+def comandos():
+    while True:
+        msg = input().strip()
+        partes = msg.split()
+        comando = partes[0].upper()
+        cp_id = partes[1]
+
+
+        if comando not in ["PARAR", "REANUDAR"]:
+            print("Comando inválido. Usa: PARAR cp_id o REANUDAR cp_id")
+            continue
+        
+        if comando == "PARAR":
+            if cp_id in cps:
+                conn_cp = cps[cp_id]["conn"]
+                cps[cp_id]["ESTADO"] = "PARADO"
+                conn_cp.send(f"[CENTRAL] comando: PARAR".encode(FORMAT))
+                print(f"[CENTRAL] {cp_id} ha sido PARADO manualmente.")
+            else:
+                print(f"[ERROR] CP {cp_id} no encontrado.")
+        
+        elif comando == "REANUDAR":
+            if cp_id in cps:
+                cps[cp_id]["ESTADO"] = "ACTIVO"
+                conn_cp = cps[cp_id]["conn"]
+                conn_cp.send(f"[CENTRAL] comando: REANUDAR".encode(FORMAT))
+                print(f"[CENTRAL] {cp_id} ha sido reactivado.")
+            else:
+                print(f"[ERROR] CP {cp_id} no encontrado.")
+        elif comando == "PARAR_TODOS":
+            for cp_id in cps():
+                cps[cp_id]["ESTADO"] = "PARADO"
+                conn_cp = cps[cp_id]["conn"]
+                conn_cp.send(f"[CENTRAL] ORDEN: PARAR".encode(FORMAT))
+                print(f"[CENTRAL] Todos los CP han sido PARADOS.")
+        elif comando == "ESTADO":
+            print("\n[ESTADO DE TODOS LOS CPs]")
+            for cp_id, info in cps.items():
+                estado = info["ESTADO"]
+                print(f"{cp_id}: {estado}")
 
          
