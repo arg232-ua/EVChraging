@@ -83,7 +83,7 @@ def handle_client(conn, addr):
 
         if msg_primer == "AVISO_RECUPERADO":
             cp_id = msg_partido[1]
-            if cp_id in cps[cp_id]["ESTADO"] == "AVERIADO":
+            if cp_id in cps and cps[cp_id]["ESTADO"] == "AVERIADO":
                 conn_cp = cps[cp_id]["conn"] 
                 conn_cp.send(f"{cp_id} actualmente disponible".encode(FORMAT))
                 cps[cp_id]["ESTADO"] = "ACTIVO"
@@ -121,15 +121,32 @@ def comandos():
             else:
                 print(f"[ERROR] CP {cp_id} no encontrado.")
         elif comando == "PARAR_TODOS":
-            for cp_id in cps():
-                cps[cp_id]["ESTADO"] = "PARADO"
-                conn_cp = cps[cp_id]["conn"]
+            for cp_id, info in cps.items():
+                conn_cp = info["conn"]
+                info["ESTADO"] = "PARADO"
                 conn_cp.send(f"[CENTRAL] ORDEN: PARAR".encode(FORMAT))
-                print(f"[CENTRAL] Todos los CP han sido PARADOS.")
+            print(f"[CENTRAL] Todos los CP han sido PARADOS.")
         elif comando == "ESTADO":
             print("\n[ESTADO DE TODOS LOS CPs]")
             for cp_id, info in cps.items():
                 estado = info["ESTADO"]
                 print(f"{cp_id}: {estado}")
 
-         
+def start():
+    server.listen()
+    print(f"[LISTENING] Servidor a la escucha en {SERVER}:{PORT}")
+    threading.Thread(target=comandos, daemon=True).start()  # Hilo para comandos
+
+    while True:
+        conn, addr = server.accept()
+        thread = threading.Thread(target=handle_client, args=(conn, addr))
+        thread.start()
+        print(f"[CONEXIONES ACTIVAS] {threading.active_count() - 1}")
+
+
+######################### MAIN ##########################
+server = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
+server.bind(ADDR)
+
+print("[STARTING] Servidor inicializándose...")
+start()
