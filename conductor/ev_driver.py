@@ -100,7 +100,7 @@ class EvDriver:
         }
 
         try:
-            self.productor.send('carga_solicitada', mensaje)
+            self.productor.send('CARGA_SOLICITADA', mensaje)
             self.productor.flush() # Aseguramos que el mensaje se envie
             print(f"Solicitud de recarga enviada del Conductor {self.driver_id} al Punto de Carga {cp_id}")
             return True

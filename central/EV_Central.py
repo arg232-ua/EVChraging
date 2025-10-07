@@ -37,7 +37,7 @@ def handle_client(conn, addr):
                 cps[cp_id]["ESTADO"] = "DESCONECTADO"
 
 
-        if msg_primer == "REQUEST_CHARGE":
+        if msg_primer == "CARGA_SOLICITADA":
             driver_id = msg_partido[1]
             cp_id = msg_partido[2]
             if cps[cp_id]["ESTADO"] == "ACTIVO":
