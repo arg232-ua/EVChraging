@@ -1,152 +1,135 @@
-import socket 
+from kafka import KafkaProducer, KafkaConsumer
+import json
 import threading
+import sys
 import time
+import mysql.connector
 
+def obtener_productor(servidor_kafka): # Crea un nuevo productor de Kafka
+    return KafkaProducer(
+        bootstrap_servers=[servidor_kafka], # Dirección del servidor de Kafka
+        value_serializer=lambda v: json.dumps(v).encode('utf-8'), # Forma de codificar los mensajes
+    )
 
-PORT = 5050
-SERVER = 'localhost'
-ADDR = (SERVER, PORT)
-FORMAT = 'utf-8'
-FIN = "FIN"
-MAX_CONEXIONES = 100000
+def obtener_consumidor(topico, grupo_id, servidor_kafka): # Crea un nuevo consumidor de Kafka
+    return KafkaConsumer(
+        topico,
+        bootstrap_servers=[servidor_kafka], # Dirección del servidor de Kafka
+        value_deserializer=lambda v: json.loads(v.decode('utf-8')), # Forma de decodificar los mensajes
+        group_id = grupo_id, # Identificador del grupo de consumidores
+        auto_offset_reset='earliest', # Comenzar a leer desde el principio del tópico
+    )
 
+def conectar_bd(servidor_bd):
+    try:
+        ip_bd, puerto_bd = servidor_bd.split(":")
+        puerto_bd = int(puerto_bd)
 
-drivers = {}
+        conexion = mysql.connector.connect(
+            host = ip_bd,
+            port = puerto_bd,
+            user = "sd_remoto",
+            password = "1234",
+            database = "evcharging"
+        )
 
-cps = {}
+        print(f"Servidor conectado a la Base de Datos en {servidor_bd}")
+        return conexion
+    except Exception as e:
+        print(f"Error al conectar a la Base de Datos: {e}")
+        return None
 
+class EV_Central:
+    def __init__(self, servidor_kafka, servidor_bd):
+        self.servidor_kafka = servidor_kafka
+        self.servidor_bd = servidor_bd
+        self.productor = obtener_productor(servidor_kafka)
+        self.cps = {}
+        self.conexion_bd = conectar_bd(servidor_bd)
 
+        print(f"Central inicializada y conectada a Kafka: {servidor_kafka} y BD: {servidor_bd}")
 
-def handle_client(conn, addr):
-    print(f"[NUEVA CONEXION] {addr} conectado.")
-    connected = True
-    while connected:
-        msg = conn.recv(1024).decode(FORMAT)  # recibo directamente
-        msg_partido = msg.split(";")
-        msg_primer = msg_partido[0]
-
-        
-
-        if msg_primer == "REGISTRO_CP":
-            cp_id = msg_partido[1]
-            cps[cp_id] = {"ESTADO": "ACTIVO", "conn": conn }
-        
-        if not msg:
-            if cp_id in cps:
-                print(f"[DESCONECTADO] {cp_id} se ha desconectado")
-                cps[cp_id]["ESTADO"] = "DESCONECTADO"
-
-
-        if msg_primer == "CARGA_SOLICITADA":
-            driver_id = msg_partido[1]
-            cp_id = msg_partido[2]
-            if cps[cp_id]["ESTADO"] == "ACTIVO":
-                conn.send(f"{cp_id} esta disponible {driver_id}".encode(FORMAT))
-                conn_cp = cps[cp_id]["conn"]    
-                conn_cp.send(f"AUTORIZAR_CARGA al {driver_id}".encode(FORMAT))
-                cps[cp_id]["ESTADO"] = "SUMINISTRANDO"
-
-            elif cps[cp_id]["ESTADO"] == "PARADO":
-                conn.send(f"{cp_id} no esta disponible {driver_id} ".encode(FORMAT))
-            
-            elif cps[cp_id]["ESTADO"] == "AVERIADO":
-                conn.send(f"{cp_id} no esta disponible {driver_id} ".encode(FORMAT))
-            
-            elif cps[cp_id]["ESTADO"] == "DESCONECTADO":
-                conn.send(f"{cp_id} no esta disponible {driver_id} ".encode(FORMAT))
-        
-        if msg_primer == "END_CHARGE":
-            cp_id = msg_partido[1]
-            conn_cp = cps[cp_id]["conn"]
-            conn_cp.send(f"Estado del {cp_id} Pasando de estado SUMINISTRANDO a ACTIVO en 4 segundos".encode(FORMAT))
-            time.sleep(4)
-            cps[cp_id]["ESTADO"] = "ACTIVO"
-            conn_cp.send(f"{cp_id} vuelve a estar ACTIVO")
-
-
-        if msg_primer == "AVISO_AVERIA":
-            cp_id = msg_partido[1]
-            if cp_id in cps:
-                estado_anterior = cps[cp_id]["ESTADO"]
-                if estado_anterior == "DESCONECTADO":
-                    print(f"[CENTRAL] Ignorado AVISO_AVERIA de {cp_id} porque está DESCONECTADO.")
+    def verifico_driver(self, driver_id):
+        if self.conexion_bd is None:
+            print("No hay conexion a la BD")
+            return False
+        else:
+            try:
+                cursor = self.conexion_bd.cursor()
+                consulta = "SELECT COUNT(*) FROM conductor WHERE id_conductor = %s"
+                cursor.execute(consulta, (driver_id,))
+                resultado = cursor.fetchone()
+                cursor.close()
+                if resultado[0] > 0:
+                    print(f"Conductor {driver_id} verificado en la Base de Datos.")
+                    return True
                 else:
-                    cps[cp_id]["ESTADO"] = "AVERIADO"
-                    conn_cp = cps[cp_id]["conn"]
-                    if estado_anterior == "SUMINISTRANDO":
-                        conn_cp.send(f"[CENTRAL] {cp_id} ha sido AVERIADO durante la carga. ¡DETENER SUMINISTRO!".encode(FORMAT))
-                        print(f"[CENTRAL] {cp_id} estaba cargando. Suministro interrumpido por avería.")
-                    else:
-                        conn_cp.send(f"[CENTRAL] {cp_id} ha sido marcado como AVERIADO.".encode(FORMAT))
-                        print(f"[CENTRAL] {cp_id} marcado como AVERIADO.")
+                    print(f"Conductor {driver_id} NO verificado en la Base de Datos.")
+                    return False
+                return 
+            except Exception as e:
+                print(f"Error al consultar el Conductor en la Base de Datos: {e}")
+                return False
 
+    def escuchar_peticiones_verificacion(self):
+        consumidor = obtener_consumidor('conductor', 'central', self.servidor_kafka)
+        print("CENTRAL: Escuchando peticiones...")
 
-        if msg_primer == "AVISO_RECUPERADO":
-            cp_id = msg_partido[1]
-            if cp_id in cps and cps[cp_id]["ESTADO"] == "AVERIADO":
-                conn_cp = cps[cp_id]["conn"] 
-                conn_cp.send(f"{cp_id} actualmente disponible".encode(FORMAT))
-                cps[cp_id]["ESTADO"] = "ACTIVO"
-            elif cp_id in cps:
-                conn_cp.send(f"{cp_id} ha enviado recuperación, pero no estaba en AVERIADO".encode(FORMAT))
+        for msg in consumidor:
+            peticion = msg.value
+            tipo = peticion.get('type')
 
+            if tipo == 'VERIFICAR_DRIVER':
+                driver_id = peticion.get('driver_id')
+                print(f"Verificando si el conductor {driver_id} esta registrado en la Base de Datos...")
+                
+                respuesta = {
+                    'driver_id': driver_id,
+                    'exists': self.verifico_driver(driver_id)
+                }
 
-def comandos():
-    while True:
-        msg = input().strip()
-        partes = msg.split()
-        comando = partes[0].upper()
-        cp_id = partes[1]
+                self.productor.send('respuestas_conductor', respuesta)
+                self.productor.flush() # Aseguramos que el mensaje se envie
+                print(f"Mensaje enviado al conductor: {driver_id}")
 
-
-        if comando not in ["PARAR", "REANUDAR"]:
-            print("Comando inválido. Usa: PARAR cp_id o REANUDAR cp_id")
-            continue
+    def iniciar_servicios(self): # Inicia los servicios en hilos separados
+        print("Iniciando todos los servicios de la central...")
         
-        if comando == "PARAR":
-            if cp_id in cps:
-                conn_cp = cps[cp_id]["conn"]
-                cps[cp_id]["ESTADO"] = "PARADO"
-                conn_cp.send(f"[CENTRAL] comando: PARAR".encode(FORMAT))
-                print(f"[CENTRAL] {cp_id} ha sido PARADO manualmente.")
-            else:
-                print(f"[ERROR] CP {cp_id} no encontrado.")
+        # Crear hilos para cada tipo de mensaje
+        hilo_verificaciones = threading.Thread(target=self.escuchar_peticiones_verificacion, daemon=True)
+        #hilo_cargas = threading.Thread(target=self.escuchar_solicitudes_carga, daemon=True)
+        #hilo_registros = threading.Thread(target=self.escuchar_registros_cp, daemon=True)
+        #hilo_estados = threading.Thread(target=self.escuchar_estados_cp, daemon=True)
         
-        elif comando == "REANUDAR":
-            if cp_id in cps:
-                cps[cp_id]["ESTADO"] = "ACTIVO"
-                conn_cp = cps[cp_id]["conn"]
-                conn_cp.send(f"[CENTRAL] comando: REANUDAR".encode(FORMAT))
-                print(f"[CENTRAL] {cp_id} ha sido reactivado.")
-            else:
-                print(f"[ERROR] CP {cp_id} no encontrado.")
-        elif comando == "PARAR_TODOS":
-            for cp_id, info in cps.items():
-                conn_cp = info["conn"]
-                info["ESTADO"] = "PARADO"
-                conn_cp.send(f"[CENTRAL] ORDEN: PARAR".encode(FORMAT))
-            print(f"[CENTRAL] Todos los CP han sido PARADOS.")
-        elif comando == "ESTADO":
-            print("\n[ESTADO DE TODOS LOS CPs]")
-            for cp_id, info in cps.items():
-                estado = info["ESTADO"]
-                print(f"{cp_id}: {estado}")
+        # Iniciar todos los hilos
+        hilo_verificaciones.start()
+        #hilo_cargas.start()
+        #hilo_registros.start()
+        #hilo_estados.start()
+        
+        print("Todos los servicios iniciados. La central está operativa.")
+        
+        # Mantener el programa activo
+        try:
+            while True:
+                time.sleep(1)
+        except KeyboardInterrupt:
+            print("\nApagando central...")
 
-def start():
-    server.listen()
-    print(f"[LISTENING] Servidor a la escucha en {SERVER}:{PORT}")
-    threading.Thread(target=comandos, daemon=True).start()  # Hilo para comandos
+def main():
+    if len(sys.argv) < 3:
+        print("ERROR: Argumentos incorrectos")
+        print("Argumentos correctos: python EV_Central.py <IP:puerto_broker> <IP:puerto_BD>")
+        sys.exit(1) # Devuelve error
+    
+    servidor_kafka = sys.argv[1]
+    servidor_bd = sys.argv[2]
 
-    while True:
-        conn, addr = server.accept()
-        thread = threading.Thread(target=handle_client, args=(conn, addr))
-        thread.start()
-        print(f"[CONEXIONES ACTIVAS] {threading.active_count() - 1}")
+    print(f"Kafka: {servidor_kafka}. BD: {servidor_bd}") # BORRRAR
+
+    ev_central = EV_Central(servidor_kafka, servidor_bd)
+    ev_central.iniciar_servicios()
 
 
-######################### MAIN ##########################
-server = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
-server.bind(ADDR)
-
-print("[STARTING] Servidor inicializándose...")
-start()
+if __name__ == "__main__":
+    main()
