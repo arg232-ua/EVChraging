@@ -8,7 +8,7 @@ import threading
 def obtener_productor(servidor_kafka): # Crea un nuevo productor de Kafka
     return KafkaProducer(
         bootstrap_servers=[servidor_kafka], # Dirección del servidor de Kafka
-        value_serializer=lambda v: json.dumps(v).encode('utf-8') # Forma de codificar los mensajes
+        value_serializer=lambda v: json.dumps(v).encode('utf-8'), # Forma de codificar los mensajes
     )
 
 def obtener_consumidor(topico, grupo_id, servidor_kafka): # Crea un nuevo consumidor de Kafka
@@ -16,8 +16,8 @@ def obtener_consumidor(topico, grupo_id, servidor_kafka): # Crea un nuevo consum
         topico,
         bootstrap_servers=[servidor_kafka], # Dirección del servidor de Kafka
         value_deserializer=lambda v: json.loads(v.decode('utf-8')), # Forma de decodificar los mensajes
-        grupo_id = grupo_id, # Identificador del grupo de consumidores
-        auto_offset_reset='earliest' # Comenzar a leer desde el principio del tópico
+        group_id = grupo_id, # Identificador del grupo de consumidores
+        auto_offset_reset='earliest', # Comenzar a leer desde el principio del tópico
     )
 
 class EvDriver:
@@ -28,19 +28,20 @@ class EvDriver:
 
         print("PRUEBA: VOY A VERIFICAR") # borrrarrrrr #####
 
-        if self.verificar_driver(): # Comprobamos si el conductor esta registrado en la BD
-
+        self.escuchar_respuestas(servidor_kafka)
+        
+        if self.verificar_driver():
             print(f"Conductor {driver_id} inicializado y conectado a Kafka: {servidor_kafka}")
-
-            self.escuchar_respuestas(servidor_kafka)
+            self.verificado = True
+            self.solicitar_recarga('CP_1') # Solicito recarga al CP_1
     
     def verificar_driver(self):
         mensaje = {
-            'type': 'verificar_driver',
+            'type': 'VERIFICAR_DRIVER',
             'driver_id': self.driver_id,
             'timestamp': time.time() # Indico el momento exacto
         }
-
+        
         try:
             self.productor.send('conductor', mensaje)
             self.productor.flush() # Aseguramos que el mensaje se envie
@@ -95,7 +96,7 @@ class EvDriver:
         mensaje = { # Mensaje a transferir a la central
             'driver_id': self.driver_id,
             'cp_id': cp_id,
-            'accion': 'solicitar_recarga',
+            'type': 'SOLICITAR_RECARGA',
             'timestamp': time.time()
         }
 
@@ -120,7 +121,6 @@ def main():
     print(f"Prueba: {servidor_kafka}, {id_driver}") # BORRRAR
 
     ev_driver = EvDriver(id_driver, servidor_kafka)
-
 
 if __name__ == "__main__":
     main()
