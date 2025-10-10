@@ -32,6 +32,8 @@ class EvDriver:
         
         if self.verificar_driver():
             print(f"Conductor {driver_id} inicializado y conectado a Kafka: {servidor_kafka}")
+            self.verificado = True
+            self.solicitar_recarga('CP_1') # Solicito recarga al CP_1
     
     def verificar_driver(self):
         mensaje = {
@@ -41,7 +43,7 @@ class EvDriver:
         }
         
         try:
-            self.productor.send('conductor', mensaje) ###### ERROR, SE QUEDA AQUI PILLADO, YA NO BAJA MAS ####################################
+            self.productor.send('conductor', mensaje)
             self.productor.flush() # Aseguramos que el mensaje se envie
             print(f"Verificando si el conductor {self.driver_id} esta registrado en la Base de Datos...")
             return True
@@ -94,7 +96,7 @@ class EvDriver:
         mensaje = { # Mensaje a transferir a la central
             'driver_id': self.driver_id,
             'cp_id': cp_id,
-            'accion': 'solicitar_recarga',
+            'type': 'SOLICITAR_RECARGA',
             'timestamp': time.time()
         }
 

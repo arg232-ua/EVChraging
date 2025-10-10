@@ -92,18 +92,39 @@ class EV_Central:
                 self.productor.flush() # Aseguramos que el mensaje se envie
                 print(f"Mensaje enviado al conductor: {driver_id}")
 
+    def escuchar_peticiones_recarga(self):
+        consumidor = obtener_consumidor('conductor', 'central', self.servidor_kafka)
+        print("CENTRAL: Escuchando peticiones...")
+
+#        for msg in consumidor:
+#            peticion = msg.value
+#            tipo = peticion.get('type')
+
+#            if tipo == 'VERIFICAR_DRIVER':
+#                driver_id = peticion.get('driver_id')
+#                print(f"Verificando si el conductor {driver_id} esta registrado en la Base de Datos...")
+                
+#                respuesta = {
+#                    'driver_id': driver_id,
+#                    'exists': self.verifico_driver(driver_id)
+#                }
+
+#                self.productor.send('respuestas_conductor', respuesta)
+#                self.productor.flush() # Aseguramos que el mensaje se envie
+#                print(f"Mensaje enviado al conductor: {driver_id}")
+
     def iniciar_servicios(self): # Inicia los servicios en hilos separados
         print("Iniciando todos los servicios de la central...")
         
         # Crear hilos para cada tipo de mensaje
         hilo_verificaciones = threading.Thread(target=self.escuchar_peticiones_verificacion, daemon=True)
-        #hilo_cargas = threading.Thread(target=self.escuchar_solicitudes_carga, daemon=True)
+        hilo_cargas = threading.Thread(target=self.escuchar_peticiones_recarga, daemon=True)
         #hilo_registros = threading.Thread(target=self.escuchar_registros_cp, daemon=True)
         #hilo_estados = threading.Thread(target=self.escuchar_estados_cp, daemon=True)
         
         # Iniciar todos los hilos
         hilo_verificaciones.start()
-        #hilo_cargas.start()
+        hilo_cargas.start()
         #hilo_registros.start()
         #hilo_estados.start()
         
