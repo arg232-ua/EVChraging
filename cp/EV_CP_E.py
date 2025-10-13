@@ -9,18 +9,14 @@ from kafka import KafkaProducer, KafkaConsumer
 import threading
 
 
-# -----------------------------
-# Tópicos Kafka
+
 TOPIC_REGISTROS = "registros_cp"
 TOPIC_COMANDOS  = "comandos_cp"
 TOPIC_ESTADO    = "estado_cp"
 TOPIC_MONITOR   = "monitor_cp"
-# -----------------------------
 
 ESTADOS_VALIDOS = {"ACTIVADO", "PARADO", "AVERIA", "SUMINISTRANDO", "DESCONECTADO"}
 
-
-# === Utilidades Kafka (mismo patrón que EV_Driver) ===
 def obtener_productor(servidor_kafka):
 
     return KafkaProducer(
@@ -42,14 +38,12 @@ def obtener_consumidor(topico, grupo_id, servidor_kafka, auto_offset_reset="late
         key_deserializer=lambda k: k.decode("utf-8") if k else None,
     )
 
-# === Clase principal del CP ===
 class EV_CP:
 
     def __init__(self, servidor_kafka, cp_id, ubicacion="N/A", precio_eur_kwh=0.35):
         self.servidor_kafka = servidor_kafka
         self.cp_id = cp_id
         self.ubicacion = ubicacion
-        self.precio = float(precio_eur_kwh)
         self.estado = "ACTIVADO"   # Estado inicial
 
         self.productor = None
@@ -92,7 +86,6 @@ class EV_CP:
             "cp_id": self.cp_id,
             "estado": self.estado,
             "motivo": motivo,
-            "precio_eur_kwh": self.precio
         }
         self.productor.send(TOPIC_ESTADO, key=self.cp_id, value=datos)
         self.productor.flush()
