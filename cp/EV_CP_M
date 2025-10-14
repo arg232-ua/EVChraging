@@ -12,6 +12,7 @@ import threading
 
 
 
+
 TOPIC_MONITOR = "monitor_cp"
 
 def obtener_productor(servidor_kafka):
