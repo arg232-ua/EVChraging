@@ -1,0 +1,137 @@
+#!/usr/bin/env python3
+# -*- coding: utf-8 -*-
+
+import sys
+import time
+import json
+from kafka import KafkaProducer
+from kafka.errors import NoBrokersAvailable
+import socket
+import threading
+
+
+
+
+TOPIC_MONITOR = "monitor_cp"
+
+def obtener_productor(servidor_kafka):
+    return KafkaProducer(
+        bootstrap_servers=[servidor_kafka],
+        value_serializer=lambda v: json.dumps(v, ensure_ascii=False).encode("utf-8"),
+        linger_ms=10,
+        key_serializer=lambda k: k.encode("utf-8") if k else None,
+    )
+
+def anunciar_monitor(productor, cp_id):
+    payload = {
+        "tipo": "MONITOR_START",
+        "cp_id": cp_id,
+        "ts": time.time()
+    }
+    productor.send(TOPIC_MONITOR, key=cp_id, value=payload)
+    productor.flush()
+    print(f"[EV_CP_M] Enviado MONITOR_START en '{TOPIC_MONITOR}'.")
+    
+def parse_host_port(hostport):
+    host, port = hostport.split(":")
+    return host, int(port)
+
+def ping_engine(engine_addr, timeout=1.0):
+    host, port = parse_host_port(engine_addr)
+    try:
+        with socket.create_connection((host, port), timeout=timeout) as s:
+            s.sendall(b"PING\n")
+            s.settimeout(timeout)
+            resp = s.recv(16).decode("utf-8", errors="ignore").strip().upper()
+            return resp == "OK"
+    except Exception:
+        return False
+def monitorizar(engine_addr, productor, cp_id):
+    """
+    Envia PING cada segundo. Reporta transición OK->KO como AVERIA y KO->OK como RECUPERADO.
+    Evita duplicados con una memoria local del último estado observado.
+    """
+    ultimo_ok = None  # None (desconocido), True (ok), False (ko)
+
+    while True:
+        ok = ping_engine(engine_addr)
+        if ultimo_ok is None:
+            ultimo_ok = ok
+        else:
+            if ultimo_ok and not ok:
+                # OK -> KO  => AVERIA
+                payload = {"tipo": "CP_AVERIA", "cp_id": cp_id, "ts": time.time(), "origen": "MONITOR"}
+                productor.send(TOPIC_MONITOR, key=cp_id, value=payload)
+                productor.flush()
+                print("[EV_CP_M] Detectada AVERIA (PING=KO) -> reportado.")
+            elif (not ultimo_ok) and ok:
+                # KO -> OK  => RECUPERADO
+                payload = {"tipo": "CP_RECUPERADO", "cp_id": cp_id, "ts": time.time(), "origen": "MONITOR"}
+                productor.send(TOPIC_MONITOR, key=cp_id, value=payload)
+                productor.flush()
+                print("[EV_CP_M] Detectada RECUPERACION (PING=OK) -> reportado.")
+            ultimo_ok = ok
+
+        time.sleep(1.0)
+
+def enviar_cmd_engine(engine_addr, texto, timeout=1.0):
+    host, port = parse_host_port(engine_addr)
+    try:
+        with socket.create_connection((host, port), timeout=timeout) as s:
+            s.sendall((texto.strip() + "\n").encode("utf-8"))
+            s.settimeout(timeout)
+            _ = s.recv(32)
+            return True
+    except Exception:
+        return False
+def bucle_teclado(engine_addr):
+    try:
+        while True:
+            cmd = input().strip().lower()
+            if cmd in ("failon", "failoff"):
+                ok = enviar_cmd_engine(engine_addr, "FAILON" if cmd == "failon" else "FAILOFF")
+                print(f"[EV_CP_M] {cmd} -> {'OK' if ok else 'ERROR'}")
+            elif cmd in ("status",):
+                ok = enviar_cmd_engine(engine_addr, "STATUS")
+                print(f"[EV_CP_M] status -> {'OK' if ok else 'ERROR'}")
+            else:
+                print("[EV_CP_M] Comandos válidos: failon, failoff, status")
+    except KeyboardInterrupt:
+        return
+
+def main():
+    if len(sys.argv) < 4:
+        print("Uso: python EV_CP_M.py <IP:PUERTO_ENGINE> <IP:PUERTO_BROKER> <CP_ID>")
+        sys.exit(1)
+    
+    engine_addr = sys.argv[1]      # p.ej. 127.0.0.1:6001
+    broker_addr = sys.argv[2]      # p.ej. 127.0.0.1:9092
+    cp_id = sys.argv[3]
+
+    print(f"[EV_CP_M] Engine={engine_addr} | Broker={broker_addr} | CP_ID={cp_id}")
+    print("[EV_CP_M] Esqueleto OK. En pasos siguientes: Kafka + heartbeats.")
+
+    try:
+        productor = obtener_productor(broker_addr)
+        for _ in range(10):
+            if productor.bootstrap_connected():
+                break
+            time.sleep(0.2)
+    except NoBrokersAvailable:
+        print("[EV_CP_M] ERROR: No se puede conectar a Kafka.")
+        sys.exit(2)
+
+    anunciar_monitor(productor, cp_id)
+
+    hilo = threading.Thread(target=monitorizar, args=(engine_addr, productor, cp_id), daemon=True)
+    hilo.start()
+    print("[EV_CP_M] Heartbeat activo: enviando PING cada segundo.")
+
+    try:
+        print("[EV_CP_M] Opcional: escribe 'failon'/'failoff' + Enter para forzar KO/OK en el Engine (vía socket).")
+        
+        while True:
+            time.sleep(1)
+    except KeyboardInterrupt:
+        print("\n[EV_CP_M] Saliendo...")
+

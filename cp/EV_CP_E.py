@@ -236,7 +236,6 @@ class EV_CP:
             print(f"[EV_CP_E] Socket de monitorización escuchando en 0.0.0.0:{self.puerto_socket}")
 
         def _loop_socket(self):
-            # Servidor que acepta conexiones una a una (simple y suficiente para monitor)
             with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as srv:
                 srv.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)
                 srv.bind(('', self.puerto_socket))
@@ -261,17 +260,14 @@ class EV_CP:
                                     if not data:
                                         break
                                     buffer += data
-                                    # Procesamos por líneas (\n)
                                     while b"\n" in buffer:
                                         line, buffer = buffer.split(b"\n", 1)
                                         self._process_socket_command(conn, line.decode(errors="ignore").strip())
                                 except socket.timeout:
-                                    # Sin datos, seguimos esperando
                                     continue
                                 except Exception:
                                     break
                     except Exception:
-                        # En un entorno real, loggearíamos el error y seguimos
                         continue
 
         def _process_socket_command(self, conn: socket.socket, cmd: str):
@@ -299,7 +295,6 @@ class EV_CP:
 
         def detener_servidor_socket(self):
             self._stop_sock.set()
-            # Un pequeño truco para desbloquear accept(): conectar y cerrar
             try:
                 with socket.create_connection(("127.0.0.1", self.puerto_socket), timeout=0.2):
                     pass
