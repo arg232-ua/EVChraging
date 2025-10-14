@@ -3,11 +3,7 @@ import json
 import threading
 import sys
 import time
-<<<<<<< HEAD
-import argparse
-=======
 import mysql.connector
->>>>>>> 3a62e3cb549c06380a1666381288ae1846ad9fd0
 
 def obtener_productor(servidor_kafka): # Crea un nuevo productor de Kafka
     return KafkaProducer(
@@ -15,15 +11,6 @@ def obtener_productor(servidor_kafka): # Crea un nuevo productor de Kafka
         value_serializer=lambda v: json.dumps(v).encode('utf-8'), # Forma de codificar los mensajes
     )
 
-<<<<<<< HEAD
-PORT = 5050
-#SERVER = 'localhost'
-#ADDR = (SERVER, PORT)
-FORMAT = 'utf-8'
-FIN = "FIN"
-MAX_CONEXIONES = 100000
-#PORT = 5050
-=======
 def obtener_consumidor(topico, grupo_id, servidor_kafka): # Crea un nuevo consumidor de Kafka
     return KafkaConsumer(
         topico,
@@ -32,7 +19,6 @@ def obtener_consumidor(topico, grupo_id, servidor_kafka): # Crea un nuevo consum
         group_id = grupo_id, # Identificador del grupo de consumidores
         auto_offset_reset='earliest', # Comenzar a leer desde el principio del tópico
     )
->>>>>>> 3a62e3cb549c06380a1666381288ae1846ad9fd0
 
 def conectar_bd(servidor_bd):
     try:
@@ -53,39 +39,6 @@ def conectar_bd(servidor_bd):
         print(f"Error al conectar a la Base de Datos: {e}")
         return None
 
-<<<<<<< HEAD
-def get_args():
-    parser = argparse.ArgumentParser(description="EV Charging CENTRAL")
-    parser.add_argument("puerto", type=int, help="Puerto de escucha de la CENTRAL")
-    parser.add_argument("broker", type=str, help="IP:puerto del Broker")
-    parser.add_argument("--bbdd", type=str, default=None, help="IP:puerto de la base de datos (opcional)")
-    return parser.parse_args()
-
-args = get_args()
-
-# 🔧 Extraer IPs y puertos del broker y base de datos
-broker_ip, broker_port = args.broker.split(":")
-bbdd_ip, bbdd_port = (args.bbdd.split(":") if args.bbdd else (None, None))
-
-# 🔧 Usar el puerto recibido como argumento
-SERVER = '0.0.0.0'
-PORT = args.puerto
-ADDR = (SERVER, PORT)
-
-# 🔧 Mostrar configuración de inicio
-print("[CENTRAL] Arrancando EV_Central...\n")
-print(f"[CENTRAL] Puerto de escucha: {PORT}")
-print(f"[CENTRAL] Broker: {broker_ip}:{broker_port}")
-if args.bbdd:
-    print(f"[CENTRAL] Base de datos: {bbdd_ip}:{bbdd_port}")
-else:
-    print("[CENTRAL] Base de datos: No usada")
-print()
-
-# 🔌 Crear el socket del servidor
-server = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
-server.bind(ADDR)
-=======
 class EV_Central:
     def __init__(self, servidor_kafka, servidor_bd):
         self.servidor_kafka = servidor_kafka
@@ -93,7 +46,6 @@ class EV_Central:
         self.productor = obtener_productor(servidor_kafka)
         self.cps = {}
         self.conexion_bd = conectar_bd(servidor_bd)
->>>>>>> 3a62e3cb549c06380a1666381288ae1846ad9fd0
 
         print(f"Central inicializada y conectada a Kafka: {servidor_kafka} y BD: {servidor_bd}")
 
@@ -185,19 +137,6 @@ class EV_Central:
         except KeyboardInterrupt:
             print("\nApagando central...")
 
-<<<<<<< HEAD
-def start():
-    server.listen()
-    print(f"[LISTENING] Servidor a la escucha en {SERVER}:{PORT}")
-    threading.Thread(target=comandos, daemon=True).start()
-    while True:
-        conn, addr = server.accept()
-        thread = threading.Thread(target=handle_client, args=(conn, addr))
-        thread.start()
-        print(f"[CONEXIONES ACTIVAS] {threading.active_count() - 1}")
-
-start()
-=======
 def main():
     if len(sys.argv) < 3:
         print("ERROR: Argumentos incorrectos")
@@ -215,4 +154,3 @@ def main():
 
 if __name__ == "__main__":
     main()
->>>>>>> 3a62e3cb549c06380a1666381288ae1846ad9fd0
