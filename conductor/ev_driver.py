@@ -11,13 +11,13 @@ def obtener_productor(servidor_kafka): # Crea un nuevo productor de Kafka
         value_serializer=lambda v: json.dumps(v).encode('utf-8'), # Forma de codificar los mensajes
     )
 
-def obtener_consumidor(topico, grupo_id, servidor_kafka): # Crea un nuevo consumidor de Kafka
+def obtener_consumidor(grupo_id, servidor_kafka): # Crea un nuevo consumidor de Kafka
     return KafkaConsumer(
-        topico,
+        'respuestas_conductor',
         bootstrap_servers=[servidor_kafka], # Dirección del servidor de Kafka
         value_deserializer=lambda v: json.loads(v.decode('utf-8')), # Forma de decodificar los mensajes
         group_id = grupo_id, # Identificador del grupo de consumidores
-        auto_offset_reset='earliest', # Comenzar a leer desde el principio del tópico
+        auto_offset_reset='latest', # earliest Comenzar a leer desde el principio del tópico
     )
 
 class EvDriver:
@@ -25,15 +25,16 @@ class EvDriver:
         self.driver_id = driver_id
         self.productor = obtener_productor(servidor_kafka)
         self.verificado = False
+        self.servidor_kafka = servidor_kafka
 
         print("PRUEBA: VOY A VERIFICAR") # borrrarrrrr #####
 
-        self.escuchar_respuestas(servidor_kafka)
+        self.escuchar_respuestas()
         
         if self.verificar_driver():
             print(f"Conductor {driver_id} inicializado y conectado a Kafka: {servidor_kafka}")
             self.verificado = True
-            self.solicitar_recarga('CP_1') # Solicito recarga al CP_1
+            self.solicitar_recarga(1) # Solicito recarga al CP_1 ### PROVIDSIONALLL
     
     def verificar_driver(self):
         mensaje = {
@@ -51,36 +52,43 @@ class EvDriver:
             print(f"Error al verificar al Conductor: {e}")
             return False
 
-    def escuchar_respuestas(self, servidor_kafka):
+    def escuchar_respuestas(self):
         def escuchar():
-            consumidor = obtener_consumidor('respuestas_conductor', f'conductor-id-{self.driver_id}', servidor_kafka)
+            consumidor = obtener_consumidor(f"driver-{self.driver_id}-{int(time.time())}", self.servidor_kafka)
 
             for msg in consumidor:
                 respuesta = msg.value
 
                 if respuesta.get('driver_id') == self.driver_id:
-                    if respuesta.get('exists'):
-                        self.verificado = True
-                        print(f"Conductor verificado correctamente. Puede solicitar recargas.")
-                    else:
-                        print(f"Conductor no registrado en la Base de Datos. No puede solicitar recargas.")
-                        print("Contacte con un administrador para darse de alta.")
-                elif respuesta.get('estado_carga'):
-                    estado = respuesta.get('estado_carga')
-                    cp_id = respuesta.get('cp_id')
-                    mensaje = respuesta.get('mensaje')
+                    if 'exists' in respuesta:
+                        if respuesta['exists'] is True:
+                            self.verificado = True
+                            print(f"Conductor verificado correctamente. Puede solicitar recargas.")
+                        else:
+                            print(f"Conductor no registrado en la Base de Datos. No puede solicitar recargas.")
+                            print("Contacte con un administrador para darse de alta.")
+                    elif 'confirmacion' in respuesta:
+                        if respuesta['confirmacion'] is True:
+                            print("FALTA PONER CUANDO RECEPCIONA RESPUESTA DEL SERVIDOR")
+                        else:
+                            print("FALTA PONER CUANDO RECEPCIONA RESPUESTA DEL SERVIDOR NO EXITOSA...")
+                    # REVISAR
+                    elif respuesta.get('estado_carga'):
+                        estado = respuesta.get('estado_carga')
+                        cp_id = respuesta.get('cp_id')
+                        mensaje = respuesta.get('mensaje')
 
-                    if estado == 'recarga_autorizada':
-                        print(f"Recarga autorizada para el conductor {self.driver_id} en el Punto de Carga {cp_id}. {mensaje}")
-                        # Cuando reciba confirmacion de que termina POR ALGUN METODO ########
-                        print("Recarga finalizada.")
-                        # Imprimir ticket
-                        print("Debe esperar 4 segundos para realizar otra recarga")
-                    
-                    else:
-                        print(f"Recarga denegada para el conductor {self.driver_id} en el Punto de Carga {cp_id}. {mensaje}")
-                        time.sleep(4) # Espero 4 segundos antes de volver a intentar una recarga
-                        print("La próxima solicitud de recarga podrá realizarse en 4 segundos")
+                        if estado == 'recarga_autorizada':
+                            print(f"Recarga autorizada para el conductor {self.driver_id} en el Punto de Carga {cp_id}. {mensaje}")
+                            # Cuando reciba confirmacion de que termina POR ALGUN METODO ########
+                            print("Recarga finalizada.")
+                            # Imprimir ticket
+                            print("Debe esperar 4 segundos para realizar otra recarga")
+                        
+                        else:
+                            print(f"Recarga denegada para el conductor {self.driver_id} en el Punto de Carga {cp_id}. {mensaje}")
+                            time.sleep(4) # Espero 4 segundos antes de volver a intentar una recarga
+                            print("La próxima solicitud de recarga podrá realizarse en 4 segundos")
                     
 
 
@@ -121,6 +129,14 @@ def main():
     print(f"Prueba: {servidor_kafka}, {id_driver}") # BORRRAR
 
     ev_driver = EvDriver(id_driver, servidor_kafka)
+    
+    try: # Para esperar respuestas y que no se cierre
+        while True:
+            time.sleep(1)
+    except KeyboardInterrupt:
+        print("\nApagando conductor...")
+
+    print('FIN PRUEBA MAIN: EV_Driver.py')
 
 if __name__ == "__main__":
     main()

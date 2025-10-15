@@ -17,7 +17,7 @@ def obtener_consumidor(topico, grupo_id, servidor_kafka): # Crea un nuevo consum
         bootstrap_servers=[servidor_kafka], # Dirección del servidor de Kafka
         value_deserializer=lambda v: json.loads(v.decode('utf-8')), # Forma de decodificar los mensajes
         group_id = grupo_id, # Identificador del grupo de consumidores
-        auto_offset_reset='earliest', # Comenzar a leer desde el principio del tópico
+        auto_offset_reset='latest', # Comenzar a leer desde el principio del tópico
     )
 
 def conectar_bd(servidor_bd):
@@ -72,14 +72,13 @@ class EV_Central:
                 return False
 
     def escuchar_peticiones_verificacion(self):
-        consumidor = obtener_consumidor('conductor', 'central', self.servidor_kafka)
-        print("CENTRAL: Escuchando peticiones...")
+        consumidor = obtener_consumidor('conductor', 'central-verificaciones', self.servidor_kafka)
+        print("CENTRAL: Escuchando peticiones de Verificación de Conductor...")
 
         for msg in consumidor:
             peticion = msg.value
-            tipo = peticion.get('type')
 
-            if tipo == 'VERIFICAR_DRIVER':
+            if peticion.get('type') == 'VERIFICAR_DRIVER':
                 driver_id = peticion.get('driver_id')
                 print(f"Verificando si el conductor {driver_id} esta registrado en la Base de Datos...")
                 
@@ -93,25 +92,30 @@ class EV_Central:
                 print(f"Mensaje enviado al conductor: {driver_id}")
 
     def escuchar_peticiones_recarga(self):
-        consumidor = obtener_consumidor('conductor', 'central', self.servidor_kafka)
-        print("CENTRAL: Escuchando peticiones...")
+        consumidor = obtener_consumidor('CARGA_SOLICITADA', 'central-recargas', self.servidor_kafka)
+        print("CENTRAL: Escuchando peticiones de Recarga...")
 
-#        for msg in consumidor:
-#            peticion = msg.value
-#            tipo = peticion.get('type')
+        for msg in consumidor:
+            peticion = msg.value
 
-#            if tipo == 'VERIFICAR_DRIVER':
-#                driver_id = peticion.get('driver_id')
-#                print(f"Verificando si el conductor {driver_id} esta registrado en la Base de Datos...")
+            if peticion.get('type') == 'SOLICITAR_RECARGA':
+                driver_id = peticion.get('driver_id')
+                cp_id = peticion.get('cp_id')
+                print(f"El conductor: {driver_id} ha solicitado una recarga en el CP: {cp_id}")
                 
-#                respuesta = {
-#                    'driver_id': driver_id,
-#                    'exists': self.verifico_driver(driver_id)
-#                }
+                # AQUÍ IMPLEMENTAR LLAMADA A CP INDICADO PARA VER SI SE PUEDE REALIZAR LA RECARGA EN ESE CP
+                
+                # A PARTIR DE AQUÍ, DEVOLVEMOS LA RESPUESTA AL CONDUCTOR (EV_Driver)
+                respuesta = {
+                    'driver_id': driver_id,
+                    'cp_id': cp_id,
+                    'confirmacion': True
+                }
 
-#                self.productor.send('respuestas_conductor', respuesta)
-#                self.productor.flush() # Aseguramos que el mensaje se envie
-#                print(f"Mensaje enviado al conductor: {driver_id}")
+                # NO TOCAR
+                self.productor.send('respuestas_conductor', respuesta)
+                self.productor.flush() # Aseguramos que el mensaje se envie
+                print(f"Mensaje enviado al conductor: {driver_id}.")
 
     def iniciar_servicios(self): # Inicia los servicios en hilos separados
         print("Iniciando todos los servicios de la central...")
