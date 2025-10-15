@@ -45,31 +45,41 @@ class EV_Central:
         self.servidor_bd = servidor_bd
         self.productor = obtener_productor(servidor_kafka)
         self.cps = {}
-        self.conexion_bd = conectar_bd(servidor_bd)
+        self.conexion_bd = None
+        self.reconectar_bd()
 
+        self.inicio = time.time()
         print(f"Central inicializada y conectada a Kafka: {servidor_kafka} y BD: {servidor_bd}")
 
+    def reconectar_bd(self):
+        try:
+            self.conexion_bd = conectar_bd(self.servidor_bd)
+            return self.conexion_bd is not None
+        except Exception as e:
+            print(f"Error al reconectar BD: {e}")
+            return False
+
     def verifico_driver(self, driver_id):
-        if self.conexion_bd is None:
+        if not self.reconectar_bd():
             print("No hay conexion a la BD")
             return False
-        else:
-            try:
-                cursor = self.conexion_bd.cursor()
-                consulta = "SELECT COUNT(*) FROM conductor WHERE id_conductor = %s"
-                cursor.execute(consulta, (driver_id,))
-                resultado = cursor.fetchone()
-                cursor.close()
-                if resultado[0] > 0:
-                    print(f"Conductor {driver_id} verificado en la Base de Datos.")
-                    return True
-                else:
-                    print(f"Conductor {driver_id} NO verificado en la Base de Datos.")
-                    return False
-                return 
-            except Exception as e:
-                print(f"Error al consultar el Conductor en la Base de Datos: {e}")
+        
+        try:
+            cursor = self.conexion_bd.cursor()
+            consulta = "SELECT COUNT(*) FROM conductor WHERE id_conductor = %s"
+            cursor.execute(consulta, (driver_id,))
+            resultado = cursor.fetchone()
+            cursor.close()
+            if resultado[0] > 0:
+                print(f"Conductor {driver_id} verificado en la Base de Datos.")
+                return True
+            else:
+                print(f"Conductor {driver_id} NO verificado en la Base de Datos.")
                 return False
+            return 
+        except Exception as e:
+            print(f"Error al consultar el Conductor en la Base de Datos: {e}")
+            return False
 
     def escuchar_peticiones_verificacion(self):
         consumidor = obtener_consumidor('conductor', 'central-verificaciones', self.servidor_kafka)
@@ -86,7 +96,7 @@ class EV_Central:
                     'driver_id': driver_id,
                     'exists': self.verifico_driver(driver_id)
                 }
-
+                time.sleep(3)
                 self.productor.send('respuestas_conductor', respuesta)
                 self.productor.flush() # Aseguramos que el mensaje se envie
                 print(f"Mensaje enviado al conductor: {driver_id}")
@@ -111,7 +121,7 @@ class EV_Central:
                     'cp_id': cp_id,
                     'confirmacion': True
                 }
-
+                time.sleep(3)
                 # NO TOCAR
                 self.productor.send('respuestas_conductor', respuesta)
                 self.productor.flush() # Aseguramos que el mensaje se envie
