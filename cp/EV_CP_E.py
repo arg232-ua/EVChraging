@@ -1,3 +1,6 @@
+#!/usr/bin/env python3
+# -*- coding: utf-8 -*-
+
 import sys
 import json
 import time
@@ -6,18 +9,13 @@ from kafka import KafkaProducer, KafkaConsumer
 import threading
 import socket
 
-
 TOPIC_REGISTROS = "registros_cp"
 TOPIC_COMANDOS  = "comandos_cp"
 TOPIC_ESTADO    = "estado_cp"
-TOPIC_MONITOR   = "monitor_cp"
 
 ESTADOS_VALIDOS = {"ACTIVADO", "PARADO", "AVERIA", "SUMINISTRANDO", "DESCONECTADO"}
 
-
-
 def obtener_productor(servidor_kafka):
-
     return KafkaProducer(
         bootstrap_servers=[servidor_kafka],
         value_serializer=lambda v: json.dumps(v, ensure_ascii=False).encode("utf-8"),
@@ -26,7 +24,6 @@ def obtener_productor(servidor_kafka):
     )
 
 def obtener_consumidor(topico, grupo_id, servidor_kafka, auto_offset_reset="latest"):
-
     return KafkaConsumer(
         topico,
         bootstrap_servers=[servidor_kafka],
@@ -38,13 +35,12 @@ def obtener_consumidor(topico, grupo_id, servidor_kafka, auto_offset_reset="late
     )
 
 class EV_CP:
-
     def __init__(self, servidor_kafka, cp_id, ubicacion="N/A", precio_eur_kwh=0.35):
         self.servidor_kafka = servidor_kafka
         self.cp_id = cp_id
         self.ubicacion = ubicacion
         self.precio = float(precio_eur_kwh)
-        self.estado = "ACTIVADO"   # Estado inicial
+        self.estado = "ACTIVADO"
 
         self.productor = None
 
@@ -62,25 +58,19 @@ class EV_CP:
         self._sock_srv = None
         self._sock_thread = None
         self._stop_sock = threading.Event()
-
         self.fallo_local = False
 
-
     def conectar(self):
-
         self.productor = obtener_productor(self.servidor_kafka)
-
         for _ in range(10):
             if self.productor.bootstrap_connected():
                 print(f"[EV_CP_E] Conectado a Kafka en {self.servidor_kafka}")
                 return True
             time.sleep(0.2)
-
         print(f"[EV_CP_E] No fue posible conectar con Kafka en {self.servidor_kafka}")
         return False
 
     def registrar_cp(self):
-
         datos = {
             "tipo": "REGISTRO_CP",
             "ts": datetime.utcnow().isoformat(),
@@ -94,7 +84,6 @@ class EV_CP:
         print(f"[EV_CP_E] Registrado CP '{self.cp_id}' en tópico '{TOPIC_REGISTROS}'.")
 
     def enviar_estado(self, nuevo_estado: str, motivo: str = "", fin=False):
-
         if nuevo_estado not in ESTADOS_VALIDOS:
             print(f"[EV_CP_E] Estado ignorado (no válido): {nuevo_estado}")
             return
@@ -114,53 +103,51 @@ class EV_CP:
                 "importe_eur": round(self.importe_eur, 4),
                 "potencia_kw": self.potencia_kw
             })
-
         if fin:
             datos["fin_carga"] = True
+
         self.productor.send(TOPIC_ESTADO, key=self.cp_id, value=datos)
         self.productor.flush()
         print(f"[EV_CP_E] Estado publicado -> {self.cp_id}: {self.estado} ({motivo})")
 
-        def _handle_command(self, msg: dict):
-            cmd = (msg.get("cmd") or "").upper()
-            meta = msg.get("meta") or {}
+    def _handle_command(self, msg: dict):
+        cmd = (msg.get("cmd") or "").upper()
+        meta = msg.get("meta") or {}
 
-            if cmd == "PARAR":
-                if self.cargando:
-                    self.finalizar_carga(motivo="Parada por CENTRAL")
-                self.enviar_estado("PARADO", motivo="Central ordena PARAR")
+        if cmd == "PARAR":
+            if self.cargando:
+                self.finalizar_carga(motivo="Parada por CENTRAL")
+            self.enviar_estado("PARADO", motivo="Central ordena PARAR")
 
-            elif cmd == "REANUDAR":
-                self.enviar_estado("ACTIVADO", motivo="Central ordena REANUDAR")
+        elif cmd == "REANUDAR":
+            self.enviar_estado("ACTIVADO", motivo="Central ordena REANUDAR")
 
-            elif cmd == "AVERIA":
-                if self.cargando:
-                    self.finalizar_carga(motivo="Avería detectada; sesión abortada")
-                self.enviar_estado("AVERIA", motivo="Central marca AVERIA")
+        elif cmd == "AVERIA":
+            if self.cargando:
+                self.finalizar_carga(motivo="Avería detectada; sesión abortada")
+            self.enviar_estado("AVERIA", motivo="Central marca AVERIA")
 
-            elif cmd == "RECUPERADO":
-                self.enviar_estado("ACTIVADO", motivo="Central marca RECUPERADO")
+        elif cmd == "RECUPERADO":
+            self.enviar_estado("ACTIVADO", motivo="Central marca RECUPERADO")
 
-            elif cmd == "INICIAR_CARGA":
-                driver_id = meta.get("driver_id")
-                potencia_kw = meta.get("potencia_kw")
-                if not driver_id:
-                    print("[EV_CP_E] INICIAR_CARGA sin driver_id -> ignorado.")
-                    return
-                if self.estado in ("PARADO", "AVERIA", "DESCONECTADO"):
-                    print(f"[EV_CP_E] INICIAR_CARGA bloqueado en estado {self.estado}.")
-                    return
-                self.iniciar_carga(driver_id, potencia_kw)
+        elif cmd == "INICIAR_CARGA":
+            driver_id = meta.get("driver_id")
+            potencia_kw = meta.get("potencia_kw")
+            if not driver_id:
+                print("[EV_CP_E] INICIAR_CARGA sin driver_id -> ignorado.")
+                return
+            if self.estado in ("PARADO", "AVERIA", "DESCONECTADO"):
+                print(f"[EV_CP_E] INICIAR_CARGA bloqueado en estado {self.estado}.")
+                return
+            self.iniciar_carga(driver_id, potencia_kw)
 
-            elif cmd == "FINALIZAR_CARGA":
-                self.finalizar_carga(motivo="Orden de CENTRAL")
+        elif cmd == "FINALIZAR_CARGA":
+            self.finalizar_carga(motivo="Orden de CENTRAL")
 
-            else:
-                print(f"[EV_CP_E] Comando no reconocido (ignorado): {cmd}")
-
+        else:
+            print(f"[EV_CP_E] Comando no reconocido (ignorado): {cmd}")
 
     def escuchar_comandos(self):
-  
         try:
             consumidor = obtener_consumidor(
                 topico=TOPIC_COMANDOS,
@@ -181,19 +168,17 @@ class EV_CP:
             print(f"[EV_CP_E] Error en escuchar_comandos: {e}")
 
     def _bucle_carga(self):
-
         try:
             while not self._stop_carga.is_set():
                 time.sleep(1.0)
                 with self._lock_carga:
                     self.energia_kwh += (self.potencia_kw / 3600.0)
                     self.importe_eur = self.energia_kwh * self.precio
-                    self.enviar_estado("SUMINISTRANDO", motivo="Telemetría en curso")
+                self.enviar_estado("SUMINISTRANDO", motivo="Telemetría en curso")
         except Exception as e:
             print(f"[EV_CP_E] Error en _bucle_carga: {e}")
 
     def iniciar_carga(self, driver_id: str, potencia_kw: float = None):
-
         with self._lock_carga:
             if self.cargando:
                 print("[EV_CP_E] Ya hay una carga en curso; ignorando INICIAR_CARGA.")
@@ -211,7 +196,6 @@ class EV_CP:
         self._hilo_carga.start()
 
     def finalizar_carga(self, motivo: str = "Fin de carga"):
-
         with self._lock_carga:
             if not self.cargando:
                 print("[EV_CP_E] No hay carga en curso; ignorando FINALIZAR_CARGA.")
@@ -227,82 +211,77 @@ class EV_CP:
             self.driver_en_carga = None
         self.enviar_estado("ACTIVADO", motivo="Libre tras finalizar carga")
 
-        def iniciar_servidor_socket(self, puerto: int):
+    def iniciar_servidor_socket(self, puerto: int):
+        self.puerto_socket = int(puerto)
+        self._stop_sock.clear()
+        self._sock_thread = threading.Thread(target=self._loop_socket, daemon=True)
+        self._sock_thread.start()
+        print(f"[EV_CP_E] Socket de monitorización escuchando en 0.0.0.0:{self.puerto_socket}")
 
-            self.puerto_socket = int(puerto)
-            self._stop_sock.clear()
-            self._sock_thread = threading.Thread(target=self._loop_socket, daemon=True)
-            self._sock_thread.start()
-            print(f"[EV_CP_E] Socket de monitorización escuchando en 0.0.0.0:{self.puerto_socket}")
+    def _loop_socket(self):
+        with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as srv:
+            srv.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)
+            srv.bind(('', self.puerto_socket))
+            srv.listen(1)
+            self._sock_srv = srv
 
-        def _loop_socket(self):
-            with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as srv:
-                srv.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)
-                srv.bind(('', self.puerto_socket))
-                srv.listen(1)
-                self._sock_srv = srv
-
-                while not self._stop_sock.is_set():
+            while not self._stop_sock.is_set():
+                try:
+                    srv.settimeout(1.0)
                     try:
-                        srv.settimeout(1.0)
-                        try:
-                            conn, addr = srv.accept()
-                        except socket.timeout:
-                            continue
-
-                        with conn:
-                            conn.settimeout(2.0)
-                            # Leemos por líneas sencillas
-                            buffer = b""
-                            while not self._stop_sock.is_set():
-                                try:
-                                    data = conn.recv(1024)
-                                    if not data:
-                                        break
-                                    buffer += data
-                                    while b"\n" in buffer:
-                                        line, buffer = buffer.split(b"\n", 1)
-                                        self._process_socket_command(conn, line.decode(errors="ignore").strip())
-                                except socket.timeout:
-                                    continue
-                                except Exception:
-                                    break
-                    except Exception:
+                        conn, addr = srv.accept()
+                    except socket.timeout:
                         continue
 
-        def _process_socket_command(self, conn: socket.socket, cmd: str):
-            
-            c = (cmd or "").strip().upper()
+                    with conn:
+                        conn.settimeout(2.0)
+                        buffer = b""
+                        while not self._stop_sock.is_set():
+                            try:
+                                data = conn.recv(1024)
+                                if not data:
+                                    break
+                                buffer += data
+                                while b"\n" in buffer:
+                                    line, buffer = buffer.split(b"\n", 1)
+                                    self._process_socket_command(conn, line.decode(errors="ignore").strip())
+                            except socket.timeout:
+                                continue
+                            except Exception:
+                                break
+                except Exception:
+                    continue
 
-            if c == "PING":
-                sano = (self.estado != "AVERIA") and (not self.fallo_local)
-                respuesta = "OK\n" if sano else "KO\n"
-                conn.sendall(respuesta.encode("utf-8"))
+    def _process_socket_command(self, conn: socket.socket, cmd: str):
+        c = (cmd or "").strip().upper()
 
-            elif c == "STATUS":
-                conn.sendall((self.estado + "\n").encode("utf-8"))
+        if c == "PING":
+            sano = (self.estado != "AVERIA") and (not self.fallo_local)
+            respuesta = "OK\n" if sano else "KO\n"
+            conn.sendall(respuesta.encode("utf-8"))
 
-            elif c == "FAILON":
-                self.fallo_local = True
-                conn.sendall(b"ACK\n")
+        elif c == "STATUS":
+            conn.sendall((self.estado + "\n").encode("utf-8"))
 
-            elif c == "FAILOFF":
-                self.fallo_local = False
-                conn.sendall(b"ACK\n")
+        elif c == "FAILON":
+            self.fallo_local = True
+            conn.sendall(b"ACK\n")
 
-            else:
-                conn.sendall(b"NACK\n")
+        elif c == "FAILOFF":
+            self.fallo_local = False
+            conn.sendall(b"ACK\n")
+        else:
+            conn.sendall(b"NACK\n")
 
-        def detener_servidor_socket(self):
-            self._stop_sock.set()
-            try:
-                with socket.create_connection(("127.0.0.1", self.puerto_socket), timeout=0.2):
-                    pass
-            except Exception:
+    def detener_servidor_socket(self):
+        self._stop_sock.set()
+        try:
+            with socket.create_connection(("127.0.0.1", self.puerto_socket), timeout=0.2):
                 pass
-            if self._sock_thread:
-                self._sock_thread.join(timeout=2.0)
-
+        except Exception:
+            pass
+        if self._sock_thread:
+            self._sock_thread.join(timeout=2.0)
 
 def main():
     if len(sys.argv) < 3:
@@ -310,31 +289,28 @@ def main():
         print("Uso: python EV_CP_E.py <IP:puerto_broker> <CP_ID> [<UBICACION>] [<PRECIO_EUR_KWH>] [<PUERTO_SOCKET_ENGINE>]")
         sys.exit(1)
 
-        servidor_kafka = sys.argv[1]
-        cp_id = sys.argv[2]
-        ubicacion = sys.argv[3] if len(sys.argv) >= 4 else "N/A"
-        precio = float(sys.argv[4]) if len(sys.argv) >= 5 else 0.35
-        puerto_engine = int(sys.argv[5]) if len(sys.argv) >= 6 else 6001
+    servidor_kafka = sys.argv[1]
+    cp_id = sys.argv[2]
+    ubicacion = sys.argv[3] if len(sys.argv) >= 4 else "N/A"
+    precio = float(sys.argv[4]) if len(sys.argv) >= 5 else 0.35
+    puerto_engine = int(sys.argv[5]) if len(sys.argv) >= 6 else 6001
 
-        print(f"[EV_CP_E] Broker: {servidor_kafka} | CP_ID: {cp_id} | Ubicación: {ubicacion} | Precio: {precio:.2f} €/kWh | PortSock: {puerto_engine}")
+    print(f"[EV_CP_E] Broker: {servidor_kafka} | CP_ID: {cp_id} | Ubicación: {ubicacion} | Precio: {precio:.2f} €/kWh | PortSock: {puerto_engine}")
 
-    cp = EV_CP(servidor_kafka, cp_id, ubicacion)
+    cp = EV_CP(servidor_kafka, cp_id, ubicacion, precio)
 
     try:
         if not cp.conectar():
             sys.exit(2)
 
         cp.iniciar_servidor_socket(puerto_engine)
-        
         cp.registrar_cp()
-                
         cp.enviar_estado(cp.estado, motivo="Arranque CP")
 
-       
         hilo_cmd = threading.Thread(target=cp.escuchar_comandos, daemon=True)
         hilo_cmd.start()
 
-        print("[EV_CP_E] Paso 3 OK: CP registrado. (Aún sin escuchar comandos ni publicar estado). Ctrl+C para salir.")
+        print("[EV_CP_E] Engine listo: registrado, escuchando comandos y con socket de monitor activo. Ctrl+C para salir.")
         while True:
             time.sleep(1)
 
@@ -342,19 +318,15 @@ def main():
         print("\n[EV_CP_E] Saliendo…")
     finally:
         try:
-            if cp is not None:
-                cp.detener_servidor_socket()
+            cp.detener_servidor_socket()
         except Exception:
             pass
-
         try:
-            if cp is not None and cp.productor is not None:
+            if cp.productor is not None:
                 cp.productor.flush(1.0)
                 cp.productor.close(1.0)
         except Exception:
             pass
 
-
 if __name__ == "__main__":
     main()
-    
