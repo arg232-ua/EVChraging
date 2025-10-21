@@ -81,6 +81,27 @@ class EV_Central:
             print(f"Error al consultar el Conductor en la Base de Datos: {e}")
             return False
 
+    def verifico_cp(self, cp_id):
+        if not self.reconectar_bd():
+            print("No hay conexion a la BD")
+            return False
+        
+        try:
+            cursor = self.conexion_bd.cursor()
+            consulta = "SELECT COUNT(*) FROM punto_recarga WHERE id_punto_recarga = %s"
+            cursor.execute(consulta, (cp_id,))
+            resultado = cursor.fetchone()
+            cursor.close()
+            if resultado[0] > 0:
+                print(f"Punto de Carga {cp_id} verificado en la Base de Datos.")
+                return True
+            else:
+                print(f"Punto de Carga {cp_id} NO existente en la Base de Datos.")
+                return False
+        except Exception as e:
+            print(f"Error al consultar el Punto de Carga en la Base de Datos: {e}")
+            return False
+
     def escuchar_peticiones_verificacion(self):
         consumidor = obtener_consumidor('conductor', 'central-verificaciones', self.servidor_kafka)
         print("CENTRAL: Escuchando peticiones de Verificación de Conductor...")
@@ -112,15 +133,23 @@ class EV_Central:
                 driver_id = peticion.get('driver_id')
                 cp_id = peticion.get('cp_id')
                 print(f"El conductor: {driver_id} ha solicitado una recarga en el CP: {cp_id}")
-                
-                # AQUÍ IMPLEMENTAR LLAMADA A CP INDICADO PARA VER SI SE PUEDE REALIZAR LA RECARGA EN ESE CP
-                
-                # A PARTIR DE AQUÍ, DEVOLVEMOS LA RESPUESTA AL CONDUCTOR (EV_Driver)
-                respuesta = {
-                    'driver_id': driver_id,
-                    'cp_id': cp_id,
-                    'confirmacion': True
-                }
+                cp_existe = self.verifico_cp(cp_id)
+                if cp_existe: # Si existe el CP en la BD
+                    # AQUÍ IMPLEMENTAR LLAMADA A CP INDICADO PARA VER SI SE PUEDE REALIZAR LA RECARGA EN ESE CP
+
+                    # A PARTIR DE AQUÍ, DEVOLVEMOS LA RESPUESTA AL CONDUCTOR (EV_Driver)
+                    respuesta = {
+                        'driver_id': driver_id,
+                        'cp_id': cp_id,
+                        'confirmacion': True
+                    }
+                else: # Si no existe el CP en la BD
+                    respuesta = {
+                        'driver_id': driver_id,
+                        'cp_id': cp_id,
+                        'confirmacion': False
+                    }
+
                 time.sleep(3)
                 # NO TOCAR
                 self.productor.send('respuestas_conductor', respuesta)
