@@ -19,20 +19,19 @@ EST_AVERIA = "AVERIA"
 EST_SUM    = "SUMINISTRANDO"
 EST_DESC   = "DESCONECTADO"
 
-
-def obtener_productor(servidor_kafka): # Crea un nuevo productor de Kafka
+def obtener_productor(servidor_kafka):
     return KafkaProducer(
-        bootstrap_servers=[servidor_kafka], # Dirección del servidor de Kafka
-        value_serializer=lambda v: json.dumps(v).encode('utf-8'), # Forma de codificar los mensajes
+        bootstrap_servers=[servidor_kafka],
+        value_serializer=lambda v: json.dumps(v).encode('utf-8'),
     )
 
-def obtener_consumidor(topico, grupo_id, servidor_kafka): # Crea un nuevo consumidor de Kafka
+def obtener_consumidor(topico, grupo_id, servidor_kafka):
     return KafkaConsumer(
         topico,
-        bootstrap_servers=[servidor_kafka], # Dirección del servidor de Kafka
-        value_deserializer=lambda v: json.loads(v.decode('utf-8')), # Forma de decodificar los mensajes
-        group_id = grupo_id, # Identificador del grupo de consumidores
-        auto_offset_reset='latest', # Comenzar a leer desde el principio del tópico
+        bootstrap_servers=[servidor_kafka],
+        value_deserializer=lambda v: json.loads(v.decode('utf-8')),
+        group_id=grupo_id,
+        auto_offset_reset='latest',
     )
 
 def conectar_bd(servidor_bd):
@@ -41,11 +40,11 @@ def conectar_bd(servidor_bd):
         puerto_bd = int(puerto_bd)
 
         conexion = mysql.connector.connect(
-            host = ip_bd,
-            port = puerto_bd,
-            user = "sd_remoto",
-            password = "1234",
-            database = "evcharging"
+            host=ip_bd,
+            port=puerto_bd,
+            user="sd_remoto",
+            password="1234",
+            database="evcharging"
         )
 
         print(f"Servidor conectado a la Base de Datos en {servidor_bd}")
@@ -61,52 +60,107 @@ class EV_Central:
         self.productor = obtener_productor(servidor_kafka)
         self.cps = {}
         self.conexion_bd = None
-        self.reconectar_bd()
+
+        self._lock = threading.Lock()
+        self._lock_bd = threading.Lock()  # Lock específico para operaciones BD
+        self.driver_por_cp = {}
+        self.cp_por_driver = {}
+
+        self.conectar_bd_inicial()
 
         self.inicio = time.time()
         print(f"Central inicializada y conectada a Kafka: {servidor_kafka} y BD: {servidor_bd}")
 
-    def reconectar_bd(self):
+    def conectar_bd_inicial(self):
+        """Conexión inicial a BD"""
         try:
             self.conexion_bd = conectar_bd(self.servidor_bd)
             return self.conexion_bd is not None
         except Exception as e:
-            print(f"Error al reconectar BD: {e}")
+            print(f"Error en conexión inicial BD: {e}")
             return False
 
+    def obtener_conexion_bd(self):
+        """Obtiene una conexión válida a BD, reconectando si es necesario"""
+        with self._lock_bd:
+            try:
+                # Verificar si la conexión existe y está viva
+                if self.conexion_bd and self.conexion_bd.is_connected():
+                    return self.conexion_bd
+                else:
+                    # Reconectar si no está conectada
+                    print("Reconectando a BD...")
+                    self.conexion_bd = conectar_bd(self.servidor_bd)
+                    return self.conexion_bd
+            except Exception as e:
+                print(f"Error al obtener conexión BD: {e}")
+                return None
+
+    def ejecutar_consulta_bd(self, consulta, parametros=None, operacion="consulta"):
+        """Ejecuta una consulta de forma segura manejando reconexiones"""
+        conexion = self.obtener_conexion_bd()
+        if not conexion:
+            print(f"No hay conexión a BD para {operacion}")
+            return None
+        
+        try:
+            cursor = conexion.cursor()
+            cursor.execute(consulta, parametros or ())
+            
+            if operacion == "consulta":
+                resultado = cursor.fetchall()
+                cursor.close()
+                return resultado
+            else:  # inserción/actualización
+                conexion.commit()
+                cursor.close()
+                return True
+                
+        except mysql.connector.Error as e:
+            print(f"Error en {operacion} BD: {e}")
+            # Intentar reconectar en caso de error
+            try:
+                self.conexion_bd = conectar_bd(self.servidor_bd)
+            except:
+                pass
+            return None
+
     def verifico_driver(self, driver_id):
-        if not self.reconectar_bd():
+        conexion = self.obtener_conexion_bd()
+        if not conexion:
             print("No hay conexion a la BD")
             return False
         
         try:
-            cursor = self.conexion_bd.cursor()
+            cursor = conexion.cursor()
             consulta = "SELECT COUNT(*) FROM conductor WHERE id_conductor = %s"
             cursor.execute(consulta, (driver_id,))
             resultado = cursor.fetchone()
             cursor.close()
+            
             if resultado[0] > 0:
                 print(f"Conductor {driver_id} verificado en la Base de Datos.")
                 return True
             else:
                 print(f"Conductor {driver_id} NO verificado en la Base de Datos.")
                 return False
-            return 
         except Exception as e:
             print(f"Error al consultar el Conductor en la Base de Datos: {e}")
             return False
 
     def verifico_cp(self, cp_id):
-        if not self.reconectar_bd():
+        conexion = self.obtener_conexion_bd()
+        if not conexion:
             print("No hay conexion a la BD")
             return False
         
         try:
-            cursor = self.conexion_bd.cursor()
+            cursor = conexion.cursor()
             consulta = "SELECT COUNT(*) FROM punto_recarga WHERE id_punto_recarga = %s"
             cursor.execute(consulta, (cp_id,))
             resultado = cursor.fetchone()
             cursor.close()
+            
             if resultado[0] > 0:
                 print(f"Punto de Carga {cp_id} verificado en la Base de Datos.")
                 return True
@@ -115,6 +169,75 @@ class EV_Central:
                 return False
         except Exception as e:
             print(f"Error al consultar el Punto de Carga en la Base de Datos: {e}")
+            return False
+
+    def existe_cp_en_bd(self, cp_id):
+        """Verifica si un CP existe en la base de datos"""
+        conexion = self.obtener_conexion_bd()
+        if not conexion:
+            print("No hay conexión a la BD para verificar CP")
+            return False
+        
+        try:
+            cursor = conexion.cursor()
+            consulta = "SELECT COUNT(*) FROM punto_recarga WHERE id_punto_recarga = %s"
+            cursor.execute(consulta, (cp_id,))
+            resultado = cursor.fetchone()
+            cursor.close()
+            return resultado[0] > 0
+        except Exception as e:
+            print(f"Error al verificar CP en BD: {e}")
+            return False
+
+    def registrar_cp_en_bd(self, cp_id, ubicacion, precio):
+        """Registra un nuevo CP en la base de datos"""
+        conexion = self.obtener_conexion_bd()
+        if not conexion:
+            print("No hay conexión a la BD para registrar CP")
+            return False
+        
+        try:
+            cursor = conexion.cursor()
+            
+            # Verificar si ya existe
+            if self.existe_cp_en_bd(cp_id):
+                print(f"CP {cp_id} ya existe en BD, actualizando información...")
+                consulta = """
+                    UPDATE punto_recarga 
+                    SET ubicacion_punto_recarga = %s, precio = %s, estado = 'DESCONECTADO'
+                    WHERE id_punto_recarga = %s
+                """
+                cursor.execute(consulta, (ubicacion, precio, cp_id))
+            else:
+                print(f"Registrando nuevo CP {cp_id} en BD...")
+                consulta = """
+                    INSERT INTO punto_recarga (id_punto_recarga, id_central, ubicacion_punto_recarga, precio, estado) 
+                    VALUES (%s, '0039051', %s, %s, 'DESCONECTADO')
+                """
+                cursor.execute(consulta, (cp_id, ubicacion, precio))
+            
+            conexion.commit()
+            cursor.close()
+            print(f"CP {cp_id} registrado/actualizado en BD correctamente")
+            return True
+        except Exception as e:
+            print(f"Error al registrar CP en BD: {e}")
+            return False
+
+    def actualizar_estado_cp_en_bd(self, cp_id, estado):
+        conexion = self.obtener_conexion_bd()
+        if not conexion:
+            return False
+        
+        try:
+            cursor = conexion.cursor()
+            consulta = "UPDATE punto_recarga SET estado = %s WHERE id_punto_recarga = %s"
+            cursor.execute(consulta, (estado, cp_id))
+            conexion.commit()
+            cursor.close()
+            return True
+        except Exception as e:
+            print(f"Error al actualizar estado CP en BD: {e}")
             return False
 
     def escuchar_peticiones_verificacion(self):
@@ -134,7 +257,7 @@ class EV_Central:
                 }
                 time.sleep(3)
                 self.productor.send('respuestas_conductor', respuesta)
-                self.productor.flush() # Aseguramos que el mensaje se envie
+                self.productor.flush()
                 print(f"Mensaje enviado al conductor: {driver_id}")
 
     def escuchar_peticiones_recarga(self):
@@ -148,29 +271,25 @@ class EV_Central:
                 driver_id = peticion.get('driver_id')
                 cp_id = peticion.get('cp_id')
                 print(f"El conductor: {driver_id} ha solicitado una recarga en el CP: {cp_id}")
-<<<<<<< HEAD
-                cp_existe = self.verifico_cp(cp_id)
-                if cp_existe: # Si existe el CP en la BD
-                    # AQUÍ IMPLEMENTAR LLAMADA A CP INDICADO PARA VER SI SE PUEDE REALIZAR LA RECARGA EN ESE CP
-
-                    # A PARTIR DE AQUÍ, DEVOLVEMOS LA RESPUESTA AL CONDUCTOR (EV_Driver)
-                    respuesta = {
-                        'driver_id': driver_id,
-                        'cp_id': cp_id,
-                        'confirmacion': True
-                    }
-                else: # Si no existe el CP en la BD
-                    respuesta = {
-                        'driver_id': driver_id,
-                        'cp_id': cp_id,
-                        'confirmacion': False
-                    }
-
-=======
                 
-                # AQUÍ IMPLEMENTAR LLAMADA A CP INDICADO PARA VER SI SE PUEDE REALIZAR LA RECARGA EN ESE CP
+                cp_existe = self.verifico_cp(cp_id)
+
+                if not cp_existe:
+                    resp = {
+                        "driver_id": driver_id,
+                        "cp_id": cp_id,
+                        "confirmacion": False,
+                        "mensaje": f"CP {cp_id} no disponible."
+                    }
+                    time.sleep(3)
+                    self.productor.send(TOPIC_RESP_DRIVER, resp)
+                    self.productor.flush()
+                    print(f"[CENTRAL] Recarga DENEGADA en {cp_id} para driver {driver_id}")
+                    continue
+
                 with self._lock:
                     estado_cp = self.cps.get(cp_id, {}).get("estado", EST_DESC)
+                    print(f"[CENTRAL] Estado del CP {cp_id}: {estado_cp}")
 
                 if estado_cp == EST_ACTIVO:
                     cmd = {
@@ -189,117 +308,150 @@ class EV_Central:
                     resp = {
                         "driver_id": driver_id,
                         "cp_id": cp_id,
-                        "estado_carga": "recarga_autorizada",
+                        "confirmacion": True,
                         "mensaje": f"CP {cp_id} disponible. Iniciando suministro..."
                     }
+                    time.sleep(3)
                     self.productor.send(TOPIC_RESP_DRIVER, resp)
                     self.productor.flush()
                     print(f"[CENTRAL] Recarga AUTORIZADA en {cp_id} para driver {driver_id}")
-                    continue  # <- Evita ejecutar el bloque inferior de "confirmacion": True
-
+                
                 else:
-                    # Denegar: responder al driver indicando el estado actual
                     resp = {
                         "driver_id": driver_id,
                         "cp_id": cp_id,
-                        "estado_carga": "recarga_denegada",
+                        "confirmacion": False,
                         "mensaje": f"CP {cp_id} no disponible (estado actual: {estado_cp})."
                     }
                     self.productor.send(TOPIC_RESP_DRIVER, resp)
                     self.productor.flush()
                     print(f"[CENTRAL] Recarga DENEGADA en {cp_id} para driver {driver_id} (estado: {estado_cp})")
 
-
-                # A PARTIR DE AQUÍ, DEVOLVEMOS LA RESPUESTA AL CONDUCTOR (EV_Driver)
-                respuesta = {
-                    'driver_id': driver_id,
-                    'cp_id': cp_id,
-                    'confirmacion': True
-                }
->>>>>>> e559266942f7d9df86d57e097fc2d62cc0d5f563
-                time.sleep(3)
-                # NO TOCAR
-                self.productor.send('respuestas_conductor', respuesta)
-                self.productor.flush() # Aseguramos que el mensaje se envie
                 print(f"Mensaje enviado al conductor: {driver_id}.")
 
-
     def escuchar_estados_cp(self):
-        cons = obtener_consumidor(TOPIC_ESTADO, 'central-estados', self.servidor_kafka)
-        print("[CENTRAL] Escuchando estado de CPs...")
+        consumidor = obtener_consumidor(TOPIC_ESTADO, 'central-estados', self.servidor_kafka)
+        print("[CENTRAL] Escuchando estados de CPs...")
 
-        for msg in cons:
-            st = msg.value
-            cp_id  = st.get("cp_id")
-            estado = st.get("estado")
-            driver = st.get("driver_id")
-            fin    = st.get("fin_carga", False)
+        for msg in consumidor:
+            estado_msg = msg.value
+            cp_id = estado_msg.get("cp_id")
+            estado = estado_msg.get("estado")
+            
             if not cp_id or not estado:
                 continue
 
+            print(f"[CENTRAL] Actualizando estado CP {cp_id}: {estado}")
+
             with self._lock:
-                info = self.cps.get(cp_id, {"estado": EST_DESC})
-                info["estado"] = estado
-                self.cps[cp_id] = info
+                if cp_id not in self.cps:
+                    self.cps[cp_id] = {}
+                self.cps[cp_id]["estado"] = estado
+                self.cps[cp_id]["ultima_actualizacion"] = time.time()
 
-            if fin and driver:
-                ticket = {
-                    "driver_id": driver,
-                    "cp_id": cp_id,
-                    "estado_carga": "recarga_finalizada",
-                    "energia_kwh": st.get("energia_kwh"),
-                    "importe_eur": st.get("importe_eur"),
-                    "mensaje": f"Recarga finalizada en {cp_id}. Importe: {st.get('importe_eur')} €"
-                }
-                self.productor.send(TOPIC_RESP_DRIVER, ticket)
-                self.productor.flush()
-                print(f"[CENTRAL] Ticket enviado a driver {driver} (CP {cp_id}).")
+            self.actualizar_estado_cp_en_bd(cp_id, estado)
 
+            if estado_msg.get("fin_carga", False):
+                driver_id = estado_msg.get("driver_id")
+                energia_kwh = estado_msg.get("energia_kwh", 0)
+                importe_eur = estado_msg.get("importe_eur", 0)
+                
+                if driver_id:
+                    ticket = {
+                        "driver_id": driver_id,
+                        "cp_id": cp_id,
+                        "estado_carga": "recarga_finalizada",
+                        "energia_kwh": energia_kwh,
+                        "importe_eur": importe_eur,
+                        "mensaje": f"Recarga finalizada en {cp_id}. Energía: {energia_kwh:.2f} kWh, Importe: {importe_eur:.2f} €"
+                    }
+                    self.productor.send(TOPIC_RESP_DRIVER, ticket)
+                    self.productor.flush()
+                    print(f"[CENTRAL] Ticket enviado a driver {driver_id} (CP {cp_id})")
+
+                    with self._lock:
+                        self.driver_por_cp.pop(cp_id, None)
+                        self.cp_por_driver.pop(driver_id, None)
+
+    def escuchar_registros_cp(self):
+        consumidor = obtener_consumidor(TOPIC_REGISTROS, 'central-registros', self.servidor_kafka)
+        print("[CENTRAL] Escuchando registros de CPs...")
+
+        for msg in consumidor:
+            registro = msg.value
+            
+            if registro.get('tipo') == 'REGISTRO_CP':
+                cp_id = registro.get('cp_id')
+                ubicacion = registro.get('ubicacion', 'N/A')
+                precio = registro.get('precio_eur_kwh', 0.35)
+                estado_inicial = registro.get('estado_inicial', EST_ACTIVO)
+                
+                print(f"[CENTRAL] Recibido registro de CP: {cp_id} en {ubicacion}")
+                
+                if self.registrar_cp_en_bd(cp_id, ubicacion, precio):
+                    print(f"[CENTRAL] CP {cp_id} procesado en BD correctamente")
+                else:
+                    print(f"[CENTRAL] Error al procesar CP {cp_id} en BD")
+                
                 with self._lock:
-                    self.driver_por_cp.pop(cp_id, None)
-                    self.cp_por_driver.pop(driver, None)
+                    if cp_id not in self.cps:
+                        self.cps[cp_id] = {
+                            "estado": estado_inicial,
+                            "ubicacion": ubicacion,
+                            "precio": precio,
+                            "ultima_actualizacion": time.time()
+                        }
+                        print(f"[CENTRAL] Nuevo CP registrado: {cp_id} en {ubicacion} (estado: {estado_inicial})")
+                    else:
+                        self.cps[cp_id].update({
+                            "ubicacion": ubicacion,
+                            "precio": precio,
+                            "ultima_actualizacion": time.time()
+                        })
+                        print(f"[CENTRAL] CP {cp_id} actualizado")
+                
+                self.actualizar_estado_cp_en_bd(cp_id, estado_inicial)
 
-    
     def consola_comandos(self):
-        print("[CENTRAL] Comandos: PARAR <cp_id> | REANUDAR <cp_id> | PARAR_TODOS | ESTADO")
-        while True:
-            try:
-                linea = input().strip()
-            except EOFError:
-                break
+            print("[CENTRAL] Comandos: PARAR <cp_id> | REANUDAR <cp_id> | PARAR_TODOS | ESTADO")
+            while True:
+                try:
+                    linea = input().strip()
+                except EOFError:
+                    break
 
-            if not linea:
-                continue
-            partes = linea.split()
-            cmd = partes[0].upper()
+                if not linea:
+                    continue
+                partes = linea.split()
+                cmd = partes[0].upper()
 
-            if cmd == "ESTADO":
-                with self._lock:
-                    print("\n[ESTADO DE TODOS LOS CPs]")
-                    for cp_id, info in self.cps.items():
-                        print(f"{cp_id}: {info.get('estado', EST_DESC)}")
-                continue
+                if cmd == "ESTADO":
+                    with self._lock:
+                        print("\n[ESTADO DE TODOS LOS CPs]")
+                        for cp_id, info in self.cps.items():
+                            print(f"{cp_id}: {info.get('estado', EST_DESC)}")
+                    continue
 
-            if cmd == "PARAR_TODOS":
-                orden = {"cp_id": "ALL", "cmd": "PARAR"}
+                if cmd == "PARAR_TODOS":
+                    orden = {"cp_id": "ALL", "cmd": "PARAR"}
+                    self.productor.send(TOPIC_COMANDOS, orden)
+                    self.productor.flush()
+                    print("[CENTRAL] ORDEN PARAR enviada a todos los CPs.")
+                    continue
+
+                if len(partes) < 2:
+                    print("Uso: PARAR <cp_id> | REANUDAR <cp_id> | PARAR_TODOS | ESTADO")
+                    continue
+
+                cp_id = partes[1]
+                if cmd not in ("PARAR", "REANUDAR"):
+                    print("Comando inválido. Usa: PARAR/REANUDAR/ESTADO/PARAR_TODOS")
+                    continue
+
+                orden = {"cp_id": cp_id, "cmd": cmd}
                 self.productor.send(TOPIC_COMANDOS, orden)
                 self.productor.flush()
-                print("[CENTRAL] ORDEN PARAR enviada a todos los CPs.")
-                continue
-
-            if len(partes) < 2:
-                print("Uso: PARAR <cp_id> | REANUDAR <cp_id> | PARAR_TODOS | ESTADO")
-                continue
-
-            cp_id = partes[1]
-            if cmd not in ("PARAR", "REANUDAR"):
-                print("Comando inválido. Usa: PARAR/REANUDAR/ESTADO/PARAR_TODOS")
-                continue
-
-            orden = {"cp_id": cp_id, "cmd": cmd}
-            self.productor.send(TOPIC_COMANDOS, orden)
-            self.productor.flush()
-            print(f"[CENTRAL] ORDEN {cmd} enviada a {cp_id}")
+                print(f"[CENTRAL] ORDEN {cmd} enviada a {cp_id}")
 
     def procesar_linea_monitor(self, linea: str):
         partes = (linea or "").strip().split()
@@ -315,6 +467,8 @@ class EV_Central:
 
             if comando == "AVISO":
                 print(f"[{ahora}] [CENTRAL] Monitor avisa de {cp_id}. Estado actual: {self.cps[cp_id]['estado']}")
+            elif comando == "HELLO":
+                print(f"[{ahora}] [CENTRAL] Monitor avisa de {cp_id}. Estado actual: {self.cps[cp_id]['estado']} --> TODO OK")
             elif comando == "MON_AVERIA":
                 self.cps[cp_id]["estado"] = EST_AVERIA
                 print(f"[{ahora}] [CENTRAL] {cp_id} -> AVERIA (reportado por monitor)")
@@ -339,13 +493,12 @@ class EV_Central:
                             linea = linea_bytes.decode(errors="ignore").strip()
                             if not linea:
                                 continue
-                            self._procesar_linea_monitor(linea)
+                            self.procesar_linea_monitor(linea)
                             cliente.sendall(b"ACK\n")
                         except Exception:
                             cliente.sendall(b"NACK\n")
         except Exception as e:
             print(f"[CENTRAL] Error con monitor {direccion}: {e}")
-
 
     def servidor_monitores(self, host_escucha="0.0.0.0", puerto_escucha=7001):
         with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as servidor:
@@ -356,30 +509,32 @@ class EV_Central:
             while True:
                 conn, addr = servidor.accept()
                 threading.Thread(
-                    target=self._atender_monitor,
+                    target=self.atender_monitor,
                     args=(conn, addr),
                     daemon=True
                 ).start()
 
-
-    def iniciar_servicios(self): # Inicia los servicios en hilos separados
+    def iniciar_servicios(self):
         print("Iniciando todos los servicios de la central...")
         
         # Crear hilos para cada tipo de mensaje
         hilo_verificaciones = threading.Thread(target=self.escuchar_peticiones_verificacion, daemon=True)
         hilo_cargas = threading.Thread(target=self.escuchar_peticiones_recarga, daemon=True)
-        #hilo_registros = threading.Thread(target=self.escuchar_registros_cp, daemon=True)
-        #hilo_estados = threading.Thread(target=self.escuchar_estados_cp, daemon=True)
+        hilo_registros = threading.Thread(target=self.escuchar_registros_cp, daemon=True)
+        hilo_estados = threading.Thread(target=self.escuchar_estados_cp, daemon=True)
+        hilo_monitores = threading.Thread(target=self.servidor_monitores, daemon=True)
+        hilo_consola = threading.Thread(target=self.consola_comandos, daemon=True)  # NUEVO: hilo para consola
         
         # Iniciar todos los hilos
         hilo_verificaciones.start()
         hilo_cargas.start()
-        #hilo_registros.start()
-        #hilo_estados.start()
+        hilo_registros.start()
+        hilo_estados.start()
+        hilo_monitores.start()
+        hilo_consola.start()  # NUEVO: iniciar consola
         
         print("Todos los servicios iniciados. La central está operativa.")
         
-        # Mantener el programa activo
         try:
             while True:
                 time.sleep(1)
@@ -390,16 +545,15 @@ def main():
     if len(sys.argv) < 3:
         print("ERROR: Argumentos incorrectos")
         print("Argumentos correctos: python EV_Central.py <IP:puerto_broker> <IP:puerto_BD>")
-        sys.exit(1) # Devuelve error
+        sys.exit(1)
     
     servidor_kafka = sys.argv[1]
     servidor_bd = sys.argv[2]
 
-    print(f"Kafka: {servidor_kafka}. BD: {servidor_bd}") # BORRRAR
+    print(f"Kafka: {servidor_kafka}. BD: {servidor_bd}")
 
     ev_central = EV_Central(servidor_kafka, servidor_bd)
     ev_central.iniciar_servicios()
-
 
 if __name__ == "__main__":
     main()

@@ -150,6 +150,20 @@ class EvDriver:
                                 time.sleep(4)
                                 self.recarga_actual += 1
                                 self.procesar_siguiente_recarga()
+                    
+                    elif 'estado_carga' in respuesta and respuesta['estado_carga'] == 'recarga_finalizada':
+                        energia = respuesta.get('energia_kwh', 0)
+                        importe = respuesta.get('importe_eur', 0)
+                        mensaje = respuesta.get('mensaje', '')
+                        print(f"🎫 TICKET FINAL: {mensaje}")
+                        print(f"   Energía consumida: {energia:.2f} kWh")
+                        print(f"   Importe total: {importe:.2f} €")
+                        
+                        self.recarga_activa = False
+                        self.cp_actual = None
+
+            if not self.hilo_activo:
+                self.finalizar = True
 
         hilo_escucha = threading.Thread(target=escuchar, daemon=True)
         hilo_escucha.start()

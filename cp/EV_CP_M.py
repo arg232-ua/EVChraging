@@ -75,7 +75,7 @@ def main():
 
     engine_addr  = sys.argv[1]
     central_addr = sys.argv[2]
-    cp_id        = sys.argv[3]
+    cp_id = sys.argv[3]
 
     for a in (engine_addr, central_addr):
         try:
