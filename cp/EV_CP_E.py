@@ -39,6 +39,7 @@ class EV_CP:
         self.ubicacion = ubicacion
         self.precio = float(precio_eur_kwh)
         self.estado = "ACTIVADO"
+        self.enchufado = False
 
         self.productor = None
 
@@ -137,6 +138,8 @@ class EV_CP:
             if self.estado in ("PARADO", "AVERIA", "DESCONECTADO"):
                 print(f"[EV_CP_E] INICIAR_CARGA bloqueado en estado {self.estado}.")
                 return
+            while not self.enchufado:
+                time.sleep(0.5)
             self.iniciar_carga(driver_id, potencia_kw)
 
         elif cmd == "FINALIZAR_CARGA":
@@ -203,7 +206,7 @@ class EV_CP:
             self.energia_kwh = 0.0
             self.importe_eur = 0.0
             self._stop_carga.clear()
-
+        
         self.enviar_estado("SUMINISTRANDO", motivo="Inicio de carga")
         self._hilo_carga = threading.Thread(target=self._bucle_carga, daemon=True)
         self._hilo_carga.start()
@@ -263,33 +266,6 @@ class EV_CP:
         except Exception as e:
             print(f"[EV_CP_E] Error al enviar solicitud de recarga local: {e}")
             return False
-        def solicitar_recarga_local(self):
-            """Enviar una solicitud de recarga a CENTRAL (simula que el propio poste la pide).
-
-            No se incluye driver_id ni potencia: la potencia es estática (self.potencia_kw)
-            y CENTRAL decidirá la asignación si procede.
-            Mensaje enviado: { 'cp_id', 'type': 'SOLICITAR_RECARGA', 'timestamp' }
-            """
-            if not self.productor:
-                print("[EV_CP_E] Productor Kafka no disponible. No se puede solicitar recarga.")
-                return False
-
-            # Incluimos un identificador de origen para que CENTRAL pueda procesar la solicitud
-            msg = {
-                'cp_id': self.cp_id,
-                'type': 'SOLICITAR_RECARGA',
-                'timestamp': time.time(),
-                'driver_id': f"POSTE_{self.cp_id}"
-            }
-
-            try:
-                self.productor.send(TOPIC_CARGA_SOLICITADA, key=self.cp_id, value=msg)
-                self.productor.flush()
-                print(f"[EV_CP_E] Solicitud de recarga local enviada desde CP '{self.cp_id}' (driver_id=POSTE_{self.cp_id})")
-                return True
-            except Exception as e:
-                print(f"[EV_CP_E] Error al enviar solicitud de recarga local: {e}")
-                return False
 
     def mostrar_menu_local(self):
         """Menu interactivo local para acciones del poste (solicitar recarga, enchufar, parar, estado...)."""
@@ -340,6 +316,7 @@ class EV_CP:
                             print("Debe proporcionar un driver_id para iniciar suministro.")
                         else:
                             self.iniciar_carga(driver_id, potencia_val)
+                        self.enchufado = True
                 elif opcion == '2':
                     if self.cargando:
                         print("Ya hay una recarga en curso. Use Desenchufar si desea finalizarla.")
@@ -352,6 +329,7 @@ class EV_CP:
                         print("No hay suministro en curso para finalizar.")
                     else:
                         self.finalizar_carga(motivo="Finalizado localmente (desenchufar)")
+                        self.enchufado = False
 
                 elif opcion == '4':
                     if self.cargando:

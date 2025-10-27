@@ -155,7 +155,7 @@ class EvDriver:
                         energia = respuesta.get('energia_kwh', 0)
                         importe = respuesta.get('importe_eur', 0)
                         mensaje = respuesta.get('mensaje', '')
-                        print(f"🎫 TICKET FINAL: {mensaje}")
+                        print(f"\n\n🎫 TICKET FINAL: {mensaje}")
                         print(f"   Energía consumida: {energia:.2f} kWh")
                         print(f"   Importe total: {importe:.2f} €")
                         
@@ -174,10 +174,8 @@ class EvDriver:
             print("          MENÚ EV_DRIVER")
             print("="*50)
             print("1. Solicitar recarga")
-            if self.recarga_activa:
-                print("2. Finalizar recarga actual")
-            print("3. Ver estado actual")
-            print("4. Salir")
+            print("2. Ver estado actual")
+            print("3. Salir")
             print("="*50)
             
             try:
@@ -189,25 +187,16 @@ class EvDriver:
                     else:
                         cp_id = input("Ingrese el ID del punto de carga: ").strip()
                         if cp_id:
-                            self.solicitar_recarga(cp_id)
                             print("⏳ Esperando confirmación del punto de carga...")
+                            self.solicitar_recarga(cp_id)
                         else:
                             print("❌ Debe ingresar un ID de punto de carga válido")
-                
                 elif opcion == '2':
-                    if self.recarga_activa:
-                        self.finalizar_recarga()
-                    else:
-                        print("❌ No hay recarga activa para finalizar")
-                
-                elif opcion == '3':
                     self.mostrar_estado()
-                
-                elif opcion == '4':
+                elif opcion == '3':
                     print("👋 Saliendo del sistema...")
                     self.finalizar = True
                     break
-                
                 else:
                     print("❌ Opción no válida. Intente nuevamente.")
             
@@ -228,7 +217,7 @@ class EvDriver:
         print(f"Respuestas pendientes: {self.respuestas_pendientes}")
         print("-------------------")
 
-    def finalizar_recarga(self):
+    def finalizar_recarga(self): # Para indicar que se finaliza la recarga tras finalizarla en el CP
         if self.recarga_activa:
             print(f"🛑 Finalizando recarga en CP: {self.cp_actual}...")
             self.recarga_activa = False
