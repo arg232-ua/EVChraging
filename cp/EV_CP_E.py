@@ -1,6 +1,3 @@
-#!/usr/bin/env python3
-# -*- coding: utf-8 -*-
-
 import sys
 import json
 import time
@@ -12,6 +9,7 @@ import socket
 TOPIC_REGISTROS = "registros_cp"
 TOPIC_COMANDOS  = "comandos_cp"
 TOPIC_ESTADO    = "estado_cp"
+TOPIC_CARGA_SOLICITADA = "CARGA_SOLICITADA"
 
 ESTADOS_VALIDOS = {"ACTIVADO", "PARADO", "AVERIA", "SUMINISTRANDO", "DESCONECTADO"}
 
@@ -117,7 +115,7 @@ class EV_CP:
         if cmd == "PARAR":
             if self.cargando:
                 self.finalizar_carga(motivo="Parada por CENTRAL")
-            self.enviar_estado("PARADO", motivo="Central ordena PARAR")
+                self.enviar_estado("PARADO", motivo="Central ordena PARAR")
 
         elif cmd == "REANUDAR":
             self.enviar_estado("ACTIVADO", motivo="Central ordena REANUDAR")
@@ -125,7 +123,7 @@ class EV_CP:
         elif cmd == "AVERIA":
             if self.cargando:
                 self.finalizar_carga(motivo="Avería detectada; sesión abortada")
-            self.enviar_estado("AVERIA", motivo="Central marca AVERIA")
+                self.enviar_estado("AVERIA", motivo="Central marca AVERIA")
 
         elif cmd == "RECUPERADO":
             self.enviar_estado("ACTIVADO", motivo="Central marca RECUPERADO")
@@ -180,9 +178,24 @@ class EV_CP:
 
     def iniciar_carga(self, driver_id: str, potencia_kw: float = None):
         with self._lock_carga:
+            # Bloquear inicio si el CP está en un estado que impide suministrar
+            if self.estado in ("PARADO", "AVERIA", "DESCONECTADO"):
+                print(f"[EV_CP_E] Inicio de carga BLOQUEADO: estado actual={self.estado}")
+                # Notificamos a CENTRAL que hubo un intento local bloqueado
+                try:
+                    self.enviar_estado(self.estado, motivo="Intento local de iniciar suministro bloqueado")
+                except Exception:
+                    pass
+                return
+
             if self.cargando:
                 print("[EV_CP_E] Ya hay una carga en curso; ignorando INICIAR_CARGA.")
                 return
+
+            # Si no se proporciona driver_id, usamos un identificador sintético del poste
+            if not driver_id:
+                driver_id = f"POSTE_{self.cp_id}"
+
             self.cargando = True
             self.driver_en_carga = driver_id
             if potencia_kw:
@@ -217,6 +230,166 @@ class EV_CP:
         self._sock_thread = threading.Thread(target=self._loop_socket, daemon=True)
         self._sock_thread.start()
         print(f"[EV_CP_E] Socket de monitorización escuchando en 0.0.0.0:{self.puerto_socket}")
+
+    def solicitar_recarga_local(self, driver_id: str = None, potencia_kw: float = None):
+        """Enviar una solicitud de recarga a CENTRAL (simula que el propio poste la pide).
+
+        El formato es compatible con el que envía `EvDriver`:
+        { 'driver_id', 'cp_id', 'type': 'SOLICITAR_RECARGA', 'timestamp' }
+        """
+        if not self.productor:
+            print("[EV_CP_E] Productor Kafka no disponible. No se puede solicitar recarga.")
+            return False
+
+        msg = {
+            'cp_id': self.cp_id,
+            'type': 'SOLICITAR_RECARGA',
+            'timestamp': time.time()
+        }
+        # Incluir driver_id solo si se proporciona (no obligatorio para solicitud desde el poste)
+        if driver_id:
+            msg['driver_id'] = driver_id
+        if potencia_kw is not None:
+            try:
+                msg['potencia_kw'] = float(potencia_kw)
+            except Exception:
+                pass
+
+        try:
+            self.productor.send(TOPIC_CARGA_SOLICITADA, key=self.cp_id, value=msg)
+            self.productor.flush()
+            print(f"[EV_CP_E] Solicitud de recarga local enviada para driver '{driver_id}' en CP '{self.cp_id}'")
+            return True
+        except Exception as e:
+            print(f"[EV_CP_E] Error al enviar solicitud de recarga local: {e}")
+            return False
+        def solicitar_recarga_local(self):
+            """Enviar una solicitud de recarga a CENTRAL (simula que el propio poste la pide).
+
+            No se incluye driver_id ni potencia: la potencia es estática (self.potencia_kw)
+            y CENTRAL decidirá la asignación si procede.
+            Mensaje enviado: { 'cp_id', 'type': 'SOLICITAR_RECARGA', 'timestamp' }
+            """
+            if not self.productor:
+                print("[EV_CP_E] Productor Kafka no disponible. No se puede solicitar recarga.")
+                return False
+
+            # Incluimos un identificador de origen para que CENTRAL pueda procesar la solicitud
+            msg = {
+                'cp_id': self.cp_id,
+                'type': 'SOLICITAR_RECARGA',
+                'timestamp': time.time(),
+                'driver_id': f"POSTE_{self.cp_id}"
+            }
+
+            try:
+                self.productor.send(TOPIC_CARGA_SOLICITADA, key=self.cp_id, value=msg)
+                self.productor.flush()
+                print(f"[EV_CP_E] Solicitud de recarga local enviada desde CP '{self.cp_id}' (driver_id=POSTE_{self.cp_id})")
+                return True
+            except Exception as e:
+                print(f"[EV_CP_E] Error al enviar solicitud de recarga local: {e}")
+                return False
+
+    def mostrar_menu_local(self):
+        """Menu interactivo local para acciones del poste (solicitar recarga, enchufar, parar, estado...)."""
+        try:
+            while True:
+                print("\n" + "="*50)
+                print("          MENÚ CP ")
+                print("="*50)
+                print("1. Solicitar recarga localmente (pedir a CENTRAL)")
+                print("2. Enchufar (iniciar suministro)")
+                print("3. Desenchufar (finalizar suministro)")
+                print("4. Poner en PARADO (local)")
+                print("5. Reanudar (local)")
+                print("6. Ver estado actual")
+                print("7. Salir")
+                print("="*50)
+
+                opcion = input("Seleccione una opción (1-7): ").strip()
+
+                if opcion == '1':
+                    # No pedimos driver_id aquí: la solicitud se hace desde el poste al CENTRAL
+                    potencia = input("Potencia solicitada (kW) [enter=predeterminada]: ").strip()
+                    potencia_val = None
+                    if potencia:
+                        try:
+                            potencia_val = float(potencia)
+                        except Exception:
+                            potencia_val = None
+                    # Enviamos la solicitud sin driver_id explícito (CENTRAL decidirá la asignación)
+                    self.solicitar_recarga_local(None, potencia_val)
+                    if opcion == '1':
+                        # Solicitud local simple: no se pide driver ni potencia (potencia es estática)
+                        self.solicitar_recarga_local()
+
+                elif opcion == '2':
+                    if self.cargando:
+                        print("Ya hay una recarga en curso. Use Desenchufar si desea finalizarla.")
+                    else:
+                        driver_id = input("Driver_id asociado a la recarga (simulado): ").strip()
+                        potencia = input("Potencia (kW) [enter=7.4]: ").strip()
+                        potencia_val = None
+                        if potencia:
+                            try:
+                                potencia_val = float(potencia)
+                            except Exception:
+                                potencia_val = None
+                        if not driver_id:
+                            print("Debe proporcionar un driver_id para iniciar suministro.")
+                        else:
+                            self.iniciar_carga(driver_id, potencia_val)
+                elif opcion == '2':
+                    if self.cargando:
+                        print("Ya hay una recarga en curso. Use Desenchufar si desea finalizarla.")
+                    else:
+                        # No se solicita driver_id ni potencia: iniciamos suministro con identificador del poste
+                        self.iniciar_carga(driver_id=f"POSTE_{self.cp_id}")
+
+                elif opcion == '3':
+                    if not self.cargando:
+                        print("No hay suministro en curso para finalizar.")
+                    else:
+                        self.finalizar_carga(motivo="Finalizado localmente (desenchufar)")
+
+                elif opcion == '4':
+                    if self.cargando:
+                        print("Hay una carga en curso; se finalizará antes de poner en PARADO.")
+                        self.finalizar_carga(motivo="Parado local: finalizando carga")
+                    self.enviar_estado("PARADO", motivo="Parado ordenado localmente")
+
+                elif opcion == '5':
+                    # Reanudar: volver a ACTIVADO si no hay avería
+                    if self.estado == 'AVERIA':
+                        print("El CP está en AVERIA y no puede reanudar hasta resolver la avería.")
+                    else:
+                        self.enviar_estado("ACTIVADO", motivo="Reanudar ordenado localmente")
+
+                elif opcion == '6':
+                    print("\n--- ESTADO CP ---")
+                    print(f"CP ID: {self.cp_id}")
+                    print(f"Estado: {self.estado}")
+                    print(f"Cargando: {'Sí' if self.cargando else 'No'}")
+                    if self.cargando:
+                        print(f"Driver en carga: {self.driver_en_carga}")
+                        print(f"Potencia (kW): {self.potencia_kw}")
+                        print(f"Energía (kWh): {self.energia_kwh:.4f}")
+                        print(f"Importe (€): {self.importe_eur:.4f}")
+                    print(f"Fallo local: {'Sí' if self.fallo_local else 'No'}")
+                    print("------------------\n")
+
+                elif opcion == '7':
+                    print("Saliendo del menú local...")
+                    break
+
+                else:
+                    print("Opción no válida. Intente de nuevo.")
+
+        except KeyboardInterrupt:
+            print("\nSaliendo del menú por KeyboardInterrupt...")
+        except Exception as e:
+            print(f"Error en menú local: {e}")
 
     def _loop_socket(self):
         with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as srv:
@@ -310,9 +483,9 @@ def main():
         hilo_cmd = threading.Thread(target=cp.escuchar_comandos, daemon=True)
         hilo_cmd.start()
 
-        print("[EV_CP_E] Engine listo: registrado, escuchando comandos y con socket de monitor activo. Ctrl+C para salir.")
-        while True:
-            time.sleep(1)
+        print("[EV_CP_E] Engine listo: registrado, escuchando comandos y con socket de monitor activo. Use el menú local para acciones (Ctrl+C para salir).")
+        # Ejecutamos el menú local en el hilo principal (interfaz de consola)
+        cp.mostrar_menu_local()
 
     except KeyboardInterrupt:
         print("\n[EV_CP_E] Saliendo…")
