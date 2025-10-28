@@ -21,7 +21,7 @@ def enviar_linea(addr, texto, timeout=1.0):
     except Exception:
         return False
 
-def ping_engine(engine_addr, timeout=1.0):
+def ping_engine(engine_addr, timeout=2.0):
     host, port = parse_host_port(engine_addr)
     try:
         with socket.create_connection((host, port), timeout=timeout) as s:
@@ -29,44 +29,70 @@ def ping_engine(engine_addr, timeout=1.0):
             s.settimeout(timeout)
             resp = s.recv(16).decode("utf-8", errors="ignore").strip().upper()
             return resp == "OK"
-    except Exception:
+    except Exception:   
         return False
-
-def enviar_cmd_engine(engine_addr, texto, timeout=1.0):
-    return enviar_linea(engine_addr, texto, timeout=timeout)
 
 def enviar_central(central_addr, texto, timeout=1.0):
     return enviar_linea(central_addr, texto, timeout=timeout)
 
-def monitorizar(engine_addr, central_addr, cp_id):
-    ultimo_ok = ping_engine(engine_addr) 
+def monitorizar(engine_addr, central_addr, cp_id, intervalo=2.0):
+    """Monitoriza el estado del Engine mediante PING periódico."""
+    ultimo_ok = ping_engine(engine_addr)
+    contador = 0
 
     while True:
         ok = ping_engine(engine_addr)
+        contador += 1
+
         if ultimo_ok and not ok:
-            print("[EV_CP_M] AVERIA detectada (PING=KO) -> notificar a Central")
+            print(f"[EV_CP_M] [{cp_id}] AVERÍA detectada (PING=KO) -> notificar a CENTRAL")
             enviar_central(central_addr, f"MON_AVERIA {cp_id}")
         elif (not ultimo_ok) and ok:
-            print("[EV_CP_M] RECUPERACION detectada (PING=OK) -> notificar a Central")
+            print(f"[EV_CP_M] [{cp_id}] RECUPERACIÓN detectada (PING=OK) -> notificar a CENTRAL")
             enviar_central(central_addr, f"MON_RECUPERADO {cp_id}")
+
+        if contador % 5 == 0:
+            estado_txt = "OK" if ok else "KO"
+            print(f"[EV_CP_M] [{cp_id}] Estado actual: {estado_txt}")
+
         ultimo_ok = ok
-        time.sleep(1.0)
+        time.sleep(intervalo)
 
+def menu_monitor(engine_addr, central_addr, cp_id):
+    """Menú para simular manualmente averías y recuperaciones."""
+    estado_simulado = "OK"
+    while True:
+        print("\n" + "="*45)
+        print(f" Monitor del CP {cp_id}")
+        print("="*45)
+        print(f"Estado actual: {estado_simulado}")
+        print("1. Simular AVERÍA")
+        print("2. Simular RECUPERACIÓN")
+        print("3. Verificar conexión con ENGINE")
+        print("4. Salir")
+        print("="*45)
 
-def bucle_teclado(engine_addr):
-    try:
-        while True:
-            cmd = input().strip().lower()
-            if cmd in ("failon", "failoff"):
-                ok = enviar_cmd_engine(engine_addr, "FAILON" if cmd == "failon" else "FAILOFF")
-                print(f"[EV_CP_M] {cmd} -> {'OK' if ok else 'ERROR'}")
-            elif cmd == "status":
-                ok = enviar_cmd_engine(engine_addr, "STATUS")
-                print(f"[EV_CP_M] status -> {'OK' if ok else 'ERROR'}")
-            else:
-                print("[EV_CP_M] Comandos válidos: failon, failoff, status")
-    except KeyboardInterrupt:
-        return
+        opcion = input("Seleccione una opción (1-4): ").strip()
+
+        if opcion == "1":
+            enviar_central(central_addr, f"MON_AVERIA {cp_id}")
+            print(f"[EV_CP_M] Simulación de AVERÍA enviada a CENTRAL.")
+            estado_simulado = "AVERÍA"
+
+        elif opcion == "2":
+            enviar_central(central_addr, f"MON_RECUPERADO {cp_id}")
+            print(f"[EV_CP_M] Simulación de RECUPERACIÓN enviada a CENTRAL.")
+            estado_simulado = "OK"
+
+        elif opcion == "3":
+            ok = ping_engine(engine_addr)
+            print(f"[EV_CP_M] Verificación con Engine -> {'OK' if ok else 'KO'}")
+
+        elif opcion == "4":
+            print("[EV_CP_M] Saliendo del menú...")
+            break
+        else:
+            print("Opción inválida, intente de nuevo.")
 
 def main():
     if len(sys.argv) < 4:
@@ -91,17 +117,13 @@ def main():
 
     hilo_mon = threading.Thread(target=monitorizar, args=(engine_addr, central_addr, cp_id), daemon=True)
     hilo_mon.start()
-    print("[EV_CP_M] Heartbeat activo: PING cada segundo.")
+    print("[EV_CP_M] Monitorización automática activa (PING periódico).")
 
-    hilo_tecl = threading.Thread(target=bucle_teclado, args=(engine_addr,), daemon=True)
-    hilo_tecl.start()
-    print("[EV_CP_M] Opcional: escribe 'failon'/'failoff'/'status' y Enter para probar con el Engine.")
-
+    # Menú interactivo en hilo principal
     try:
-        while True:
-            time.sleep(1)
+        menu_monitor(engine_addr, central_addr, cp_id)
     except KeyboardInterrupt:
-        print("\n[EV_CP_M] Saliendo...")
+        print("\n[EV_CP_M] Interrupción detectada. Saliendo...")
 
 if __name__ == "__main__":
     main()

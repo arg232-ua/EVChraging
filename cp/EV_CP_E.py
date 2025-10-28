@@ -443,22 +443,16 @@ class EV_CP:
         c = (cmd or "").strip().upper()
 
         if c == "PING":
-            sano = (self.estado != "AVERIA") and (not self.fallo_local)
-            respuesta = "OK\n" if sano else "KO\n"
+                # Solo responde "OK" si el CP está ACTIVADO
+            if self.estado == "ACTIVADO" or self.estado == "SUMINISTRANDO":
+                respuesta = "OK\n"
+            else:
+                respuesta = "KO\n"
+
             conn.sendall(respuesta.encode("utf-8"))
+            print(f"[EV_CP_E] PING recibido -> Estado={self.estado} -> Respuesta={respuesta.strip()}")
+            return
 
-        elif c == "STATUS":
-            conn.sendall((self.estado + "\n").encode("utf-8"))
-
-        elif c == "FAILON":
-            self.fallo_local = True
-            conn.sendall(b"ACK\n")
-
-        elif c == "FAILOFF":
-            self.fallo_local = False
-            conn.sendall(b"ACK\n")
-        else:
-            conn.sendall(b"NACK\n")
 
     def detener_servidor_socket(self):
         self._stop_sock.set()
