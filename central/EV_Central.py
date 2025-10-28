@@ -224,6 +224,26 @@ class EV_Central:
             print(f"Error al registrar CP en BD: {e}")
             return False
 
+    def manejar_desconexion_cp(self, cp_id):
+        print(f"[CENTRAL] Recibida desconexión del CP {cp_id}")
+        
+        with self._lock:
+            if cp_id in self.cps:
+                # Actualizar estado local
+                self.cps[cp_id]["estado"] = EST_DESC
+                self.cps[cp_id]["ultima_actualizacion"] = time.time()
+                
+                # Limpiar asignaciones si estaba en uso
+                if cp_id in self.driver_por_cp:
+                    driver_id = self.driver_por_cp[cp_id]
+                    self.cp_por_driver.pop(driver_id, None)
+                    self.driver_por_cp.pop(cp_id, None)
+                    print(f"[CENTRAL] Limpiadas asignaciones del CP {cp_id} (driver: {driver_id})")
+        
+        # Actualizar base de datos
+        self.actualizar_estado_cp_en_bd(cp_id, EST_DESC)
+        print(f"[CENTRAL] CP {cp_id} marcado como DESCONECTADO")
+
     def actualizar_estado_cp_en_bd(self, cp_id, estado):
         conexion = self.obtener_conexion_bd()
         if not conexion:
@@ -341,6 +361,10 @@ class EV_Central:
             if not cp_id or not estado:
                 continue
 
+            if estado_msg.get("tipo") == "DESCONEXION_CP":
+                self.manejar_desconexion_cp(cp_id)
+                continue
+
             print(f"[CENTRAL] Actualizando estado CP {cp_id}: {estado}")
 
             with self._lock:
@@ -365,6 +389,7 @@ class EV_Central:
                         "importe_eur": importe_eur,
                         "mensaje": f"Recarga finalizada en {cp_id}. Energía: {energia_kwh:.2f} kWh, Importe: {importe_eur:.2f} €"
                     }
+                    self.cps.setdefault(cp_id, {})["estado"] = EST_ACTIVO
                     self.productor.send(TOPIC_RESP_DRIVER, ticket)
                     self.productor.flush()
                     print(f"[CENTRAL] Ticket enviado a driver {driver_id} (CP {cp_id})")

@@ -268,8 +268,50 @@ class EV_CP:
             print(f"[EV_CP_E] Error al enviar solicitud de recarga local: {e}")
             return False
 
+    def desconectar_cp(self):
+        print(f"[EV_CP_E] Iniciando desconexión del CP {self.cp_id}...")
+        
+        # 1. Finalizar carga si está en curso
+        if self.cargando:
+            print("[EV_CP_E] Finalizando carga activa antes de desconectar...")
+            self.finalizar_carga(motivo="Desconexión del CP")
+        
+        # 2. Enviar mensaje de desconexión a la central
+        datos_desconexion = {
+            "tipo": "DESCONEXION_CP",
+            "ts": datetime.utcnow().isoformat(),
+            "cp_id": self.cp_id,
+            "estado": "DESCONECTADO",
+            "motivo": "Desconexión voluntaria desde el CP",
+            "ubicacion": self.ubicacion
+        }
+        
+        try:
+            self.productor.send(TOPIC_ESTADO, key=self.cp_id, value=datos_desconexion)
+            self.productor.flush()
+            print(f"[EV_CP_E] Mensaje de desconexión enviado a la central para CP {self.cp_id}")
+        except Exception as e:
+            print(f"[EV_CP_E] Error al enviar mensaje de desconexión: {e}")
+        
+        # 3. Actualizar estado local
+        self.estado = "DESCONECTADO"
+        self.enchufado = False
+        
+        # 4. Cerrar conexiones
+        self.detener_servidor_socket()
+        
+        # 5. Cerrar productor Kafka
+        try:
+            if self.productor:
+                self.productor.flush(timeout=2.0)
+                self.productor.close(timeout=2.0)
+                print("[EV_CP_E] Productor Kafka cerrado")
+        except Exception as e:
+            print(f"[EV_CP_E] Error al cerrar productor Kafka: {e}")
+        
+        print(f"[EV_CP_E] CP {self.cp_id} completamente desconectado")
+
     def mostrar_menu_local(self):
-        """Menu interactivo local para acciones del poste (solicitar recarga, enchufar, parar, estado...)."""
         try:
             while True:
                 print("\n" + "="*50)
@@ -288,8 +330,8 @@ class EV_CP:
 
                 if opcion == '1':
                     # No pedimos driver_id aquí: la solicitud se hace desde el poste al CENTRAL
-                    driver_id = input("Conductor : ").strip()
-                    potencia_kw = input("Potencia : ").strip()
+                    driver_id = input("Conductor: ").strip()
+                    potencia_kw = input("Potencia: ").strip()
                     # Enviamos la solicitud sin driver_id explícito (CENTRAL decidirá la asignación)
                     self.solicitar_recarga_local(driver_id, potencia_kw)
 
@@ -352,6 +394,7 @@ class EV_CP:
 
                 elif opcion == '7':
                     print("Saliendo del menú local...")
+                    self.desconectar_cp()
                     break
 
                 else:

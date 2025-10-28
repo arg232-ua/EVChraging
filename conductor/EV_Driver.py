@@ -179,7 +179,7 @@ class EvDriver:
             print("="*50)
             
             try:
-                opcion = input("Seleccione una opción (1-4): ").strip()
+                opcion = input("Seleccione una opción (1-3): ").strip()
                 
                 if opcion == '1':
                     if self.recarga_activa:
