@@ -260,6 +260,58 @@ class EV_Central:
             print(f"Error al actualizar estado CP en BD: {e}")
             return False
 
+    def obtener_cps_disponibles_bd(self): # Obtener CPs disponibles
+        conexion = self.obtener_conexion_bd()
+        if not conexion:
+            return []
+        
+        try:
+            cursor = conexion.cursor()
+            consulta = "SELECT id_punto_recarga, ubicacion_punto_recarga, precio FROM punto_recarga WHERE estado = 'ACTIVADO' ORDER BY id_punto_recarga"
+            cursor.execute(consulta)
+            resultados = cursor.fetchall()
+            cursor.close()
+            return resultados
+        except Exception as e:
+            print(f"Error al consultar CPs disponibles en BD: {e}")
+            return []
+
+    def escuchar_consultas_cps(self): # Para obtener los CPs disponibles y mandarlo al Driver
+        consumidor = obtener_consumidor('consultas_cps', 'central-consultas', self.servidor_kafka)
+        print("[CENTRAL] Escuchando consultas de CPs disponibles...")
+
+        for msg in consumidor:
+            consulta = msg.value
+            
+            if consulta.get('type') == 'CONSULTA_CPS_DISPONIBLES':
+                driver_id = consulta.get('driver_id')
+                consulta_id = consulta.get('consulta_id')
+                print(f"[CENTRAL] Driver {driver_id} solicita CPs disponibles")
+                
+                # Obtener CPs disponibles de la BD
+                cps_disponibles = self.obtener_cps_disponibles_bd()
+                
+                # Preparar respuesta
+                respuesta = {
+                    'type': 'RESPUESTA_CPS_DISPONIBLES',
+                    'driver_id': driver_id,
+                    'consulta_id': consulta_id,
+                    'cps_disponibles': [
+                        {
+                            'cp_id': cp[0],
+                            'ubicacion': cp[1],
+                            'precio': float(cp[2])
+                        }
+                        for cp in cps_disponibles
+                    ],
+                    'timestamp': time.time()
+                }
+                
+                # Enviar respuesta
+                self.productor.send('respuestas_consultas_cps', respuesta)
+                self.productor.flush()
+                print(f"[CENTRAL] Enviados {len(cps_disponibles)} CPs disponibles a driver {driver_id}")
+
     def escuchar_peticiones_verificacion(self):
         consumidor = obtener_consumidor('conductor', 'central-verificaciones', self.servidor_kafka)
         print("CENTRAL: Escuchando peticiones de Verificación de Conductor...")
@@ -548,7 +600,8 @@ class EV_Central:
         hilo_registros = threading.Thread(target=self.escuchar_registros_cp, daemon=True)
         hilo_estados = threading.Thread(target=self.escuchar_estados_cp, daemon=True)
         hilo_monitores = threading.Thread(target=self.servidor_monitores, daemon=True)
-        hilo_consola = threading.Thread(target=self.consola_comandos, daemon=True)  # NUEVO: hilo para consola
+        hilo_consola = threading.Thread(target=self.consola_comandos, daemon=True) # Para consola
+        hilo_consultas = threading.Thread(target=self.escuchar_consultas_cps, daemon=True)
         
         # Iniciar todos los hilos
         hilo_verificaciones.start()
@@ -556,7 +609,8 @@ class EV_Central:
         hilo_registros.start()
         hilo_estados.start()
         hilo_monitores.start()
-        hilo_consola.start()  # NUEVO: iniciar consola
+        hilo_consola.start()
+        hilo_consultas.start()
         
         print("Todos los servicios iniciados. La central está operativa.")
         

@@ -13,8 +13,9 @@ def obtener_productor(servidor_kafka):
     )
 
 def obtener_consumidor(grupo_id, servidor_kafka):
+    topics = ['respuestas_conductor','respuestas_consultas_cps']
     return KafkaConsumer(
-        'respuestas_conductor',
+        *topics, # * Para desempaquetar la lista
         bootstrap_servers=[servidor_kafka],
         value_deserializer=lambda v: json.loads(v.decode('utf-8')),
         group_id=grupo_id,
@@ -37,6 +38,8 @@ class EvDriver:
         self.modo_manual = False
         self.recarga_activa = False
         self.cp_actual = None
+        self.consulta_cps_pendiente = False
+        self.cps_disponibles = []
 
         if archivo:
             self.cargar_recargas(archivo)
@@ -150,7 +153,10 @@ class EvDriver:
                                 time.sleep(4)
                                 self.recarga_actual += 1
                                 self.procesar_siguiente_recarga()
-                    
+                    elif respuesta.get('type') == 'RESPUESTA_CPS_DISPONIBLES' and respuesta.get('driver_id') == self.driver_id:
+                        self.cps_disponibles = respuesta.get('cps_disponibles', [])
+                        self.consulta_cps_pendiente = False
+                        print(f"✅ Recibida información de {len(self.cps_disponibles)} CPs disponibles")
                     elif 'estado_carga' in respuesta and respuesta['estado_carga'] == 'recarga_finalizada':
                         energia = respuesta.get('energia_kwh', 0)
                         importe = respuesta.get('importe_eur', 0)
@@ -168,6 +174,61 @@ class EvDriver:
         hilo_escucha = threading.Thread(target=escuchar, daemon=True)
         hilo_escucha.start()
     
+    def consultar_cps_disponibles(self): # Consultar con central los CPs disponibles
+        consulta_id = f"{self.driver_id}_{int(time.time())}"
+        
+        mensaje = {
+            'type': 'CONSULTA_CPS_DISPONIBLES',
+            'driver_id': self.driver_id,
+            'consulta_id': consulta_id,
+            'timestamp': time.time()
+        }
+        
+        try:
+            self.consulta_cps_pendiente = True
+            self.cps_disponibles = []  # Resetear lista
+            self.productor.send('consultas_cps', mensaje)
+            self.productor.flush()
+            print("Consultando CPs disponibles...")
+            
+            # Esperar respuesta
+            tiempo_espera = time.time()
+            while self.consulta_cps_pendiente and (time.time() - tiempo_espera < 10):  # Timeout 10 segundos
+                time.sleep(0.5)
+            
+            if self.consulta_cps_pendiente:
+                print("❌ Timeout: No se recibieron CPs disponibles")
+                self.consulta_cps_pendiente = False
+                return False
+            return True
+        except Exception as e:
+            print(f"❌ Error al consultar CPs disponibles: {e}")
+            self.consulta_cps_pendiente = False
+            return False
+
+    def mostrar_cp_disponibles(self): # Mostrar los CPs disponibles
+        print("\n" + "="*60)
+        print("          PUNTOS DE CARGA DISPONIBLES")
+        print("="*60)
+        
+        if not self.consultar_cps_disponibles():
+            return
+        
+        if not self.cps_disponibles:
+            print("❌ No hay puntos de carga disponibles en este momento")
+            print("Los CPs pueden estar: PARADOS, EN AVERÍA, DESCONECTADOS o SUMINISTRANDO")
+            return
+        
+        print(f"📊 Se encontraron {len(self.cps_disponibles)} punto(s) de carga disponible(s):\n")
+        print(f"{'ID CP':<15} {'UBICACIÓN':<25} {'PRECIO (€/kWh)':<15}")
+        print("-" * 60)
+        
+        for cp in self.cps_disponibles:
+            print(f"{cp['cp_id']:<15} {cp['ubicacion']:<25} {cp['precio']:<15.3f}")
+        
+        print("=" * 60)
+
+
     def mostrar_menu(self):
         while not self.finalizar:
             print("\n" + "="*50)
@@ -175,11 +236,12 @@ class EvDriver:
             print("="*50)
             print("1. Solicitar recarga")
             print("2. Ver estado actual")
-            print("3. Salir")
+            print("3. Mostrar CP disponibles para suministrar")
+            print("4. Salir")
             print("="*50)
             
             try:
-                opcion = input("Seleccione una opción (1-3): ").strip()
+                opcion = input("Seleccione una opción (1-4): ").strip()
                 
                 if opcion == '1':
                     if self.recarga_activa:
@@ -194,6 +256,9 @@ class EvDriver:
                 elif opcion == '2':
                     self.mostrar_estado()
                 elif opcion == '3':
+                    print("Mostrando todos los CP diponibles para suministrar...")
+                    self.mostrar_cp_disponibles()
+                elif opcion == '4':
                     print("👋 Saliendo del sistema...")
                     self.finalizar = True
                     break
