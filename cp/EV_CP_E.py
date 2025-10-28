@@ -234,7 +234,7 @@ class EV_CP:
         self._sock_thread.start()
         print(f"[EV_CP_E] Socket de monitorización escuchando en 0.0.0.0:{self.puerto_socket}")
 
-    def solicitar_recarga_local(self, driver_id: str = None, potencia_kw: float = None):
+    def solicitar_recarga_local(self, driver_id, potencia_kw):
         """Enviar una solicitud de recarga a CENTRAL (simula que el propio poste la pide).
 
         El formato es compatible con el que envía `EvDriver`:
@@ -246,6 +246,7 @@ class EV_CP:
 
         msg = {
             'cp_id': self.cp_id,
+            'driver_id': driver_id,
             'type': 'SOLICITAR_RECARGA',
             'timestamp': time.time()
         }
@@ -287,18 +288,10 @@ class EV_CP:
 
                 if opcion == '1':
                     # No pedimos driver_id aquí: la solicitud se hace desde el poste al CENTRAL
-                    potencia = input("Potencia solicitada (kW) [enter=predeterminada]: ").strip()
-                    potencia_val = None
-                    if potencia:
-                        try:
-                            potencia_val = float(potencia)
-                        except Exception:
-                            potencia_val = None
+                    driver_id = input("Conductor : ").strip()
+                    potencia_kw = input("Potencia : ").strip()
                     # Enviamos la solicitud sin driver_id explícito (CENTRAL decidirá la asignación)
-                    self.solicitar_recarga_local(None, potencia_val)
-                    if opcion == '1':
-                        # Solicitud local simple: no se pide driver ni potencia (potencia es estática)
-                        self.solicitar_recarga_local()
+                    self.solicitar_recarga_local(driver_id, potencia_kw)
 
                 elif opcion == '2':
                     if self.cargando:
