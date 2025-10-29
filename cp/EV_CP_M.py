@@ -21,11 +21,11 @@ def enviar_linea(addr, texto, timeout=1.0):
     except Exception:
         return False
 
-def ping_engine(engine_addr, timeout=2.0):
+def ping_engine(engine_addr, cp_id, timeout=2.0):
     host, port = parse_host_port(engine_addr)
     try:
         with socket.create_connection((host, port), timeout=timeout) as s:
-            s.sendall(b"PING\n")
+            s.sendall(f"PING {cp_id}\n".encode("utf-8"))
             s.settimeout(timeout)
             resp = s.recv(16).decode("utf-8", errors="ignore").strip().upper()
             return resp == "OK"
@@ -37,11 +37,11 @@ def enviar_central(central_addr, texto, timeout=1.0):
 
 def monitorizar(engine_addr, central_addr, cp_id, intervalo=2.0):
     """Monitoriza el estado del Engine mediante PING periódico."""
-    ultimo_ok = ping_engine(engine_addr)
+    ultimo_ok = ping_engine(engine_addr, cp_id)
     contador = 0
 
     while True:
-        ok = ping_engine(engine_addr)
+        ok = ping_engine(engine_addr, cp_id)
         contador += 1
 
         if ultimo_ok and not ok:
@@ -85,7 +85,7 @@ def menu_monitor(engine_addr, central_addr, cp_id):
             estado_simulado = "OK"
 
         elif opcion == "3":
-            ok = ping_engine(engine_addr)
+            ok = ping_engine(engine_addr, cp_id)
             print(f"[EV_CP_M] Verificación con Engine -> {'OK' if ok else 'KO'}")
 
         elif opcion == "4":

@@ -140,7 +140,6 @@ class EV_CP:
                 return
             while not self.enchufado:
                 time.sleep(0.5)
-            self.iniciar_carga(driver_id, potencia_kw)
 
         elif cmd == "FINALIZAR_CARGA":
             self.finalizar_carga(motivo="Orden de CENTRAL")
@@ -190,7 +189,6 @@ class EV_CP:
                 except Exception:
                     pass
                 return
-
             if self.cargando:
                 print("[EV_CP_E] Ya hay una carga en curso; ignorando INICIAR_CARGA.")
                 return
@@ -260,7 +258,7 @@ class EV_CP:
                 pass
 
         try:
-            self.productor.send(TOPIC_CARGA_SOLICITADA, key=self.cp_id, value=msg)
+            self.productor.send(TOPIC_CARGA_SOLICITADA, key=self.cp_id, value=msg) #Solicita recarga local a central
             self.productor.flush()
             print(f"[EV_CP_E] Solicitud de recarga local enviada para driver '{driver_id}' en CP '{self.cp_id}'")
             return True
@@ -352,12 +350,6 @@ class EV_CP:
                         else:
                             self.iniciar_carga(driver_id, potencia_val)
                         self.enchufado = True
-                elif opcion == '2':
-                    if self.cargando:
-                        print("Ya hay una recarga en curso. Use Desenchufar si desea finalizarla.")
-                    else:
-                        # No se solicita driver_id ni potencia: iniciamos suministro con identificador del poste
-                        self.iniciar_carga(driver_id=f"POSTE_{self.cp_id}")
 
                 elif opcion == '3':
                     if not self.cargando:
@@ -442,16 +434,21 @@ class EV_CP:
     def _process_socket_command(self, conn: socket.socket, cmd: str):
         c = (cmd or "").strip().upper()
 
-        if c == "PING":
-                # Solo responde "OK" si el CP está ACTIVADO
+        if c.startswith("PING"):
+            # Esperar: "PING CP3" en lugar de solo "PING"
+            partes = c.split()
+            cp_solicitado = partes[1] if len(partes) > 1 else None
+            
+            if cp_solicitado and cp_solicitado != self.cp_id:
+                # No es para este CP
+                conn.sendall(b"KO\n")
+                return
+                
             if self.estado == "ACTIVADO" or self.estado == "SUMINISTRANDO":
                 respuesta = "OK\n"
             else:
                 respuesta = "KO\n"
-
             conn.sendall(respuesta.encode("utf-8"))
-            print(f"[EV_CP_E] PING recibido -> Estado={self.estado} -> Respuesta={respuesta.strip()}")
-            return
 
 
     def detener_servidor_socket(self):
