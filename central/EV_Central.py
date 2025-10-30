@@ -488,47 +488,19 @@ class EV_Central:
                         print(f"[CENTRAL] CP {cp_id} actualizado")
                 
                 self.actualizar_estado_cp_en_bd(cp_id, estado_inicial)
-
-    def consola_comandos(self):
-            print("[CENTRAL] Comandos: PARAR <cp_id> | REANUDAR <cp_id> | PARAR_TODOS | ESTADO")
-            while True:
-                try:
-                    linea = input().strip()
-                except EOFError:
-                    break
-
-                if not linea:
-                    continue
-                partes = linea.split()
-                cmd = partes[0].upper()
-
-                if cmd == "ESTADO":
-                    with self._lock:
-                        print("\n[ESTADO DE TODOS LOS CPs]")
-                        for cp_id, info in self.cps.items():
-                            print(f"{cp_id}: {info.get('estado', EST_DESC)}")
-                    continue
-
-                if cmd == "PARAR_TODOS":
-                    orden = {"cp_id": "ALL", "cmd": "PARAR"}
-                    self.productor.send(TOPIC_COMANDOS, orden)
-                    self.productor.flush()
-                    print("[CENTRAL] ORDEN PARAR enviada a todos los CPs.")
-                    continue
-
-                if len(partes) < 2:
-                    print("Uso: PARAR <cp_id> | REANUDAR <cp_id> | PARAR_TODOS | ESTADO")
-                    continue
-
-                cp_id = partes[1]
-                if cmd not in ("PARAR", "REANUDAR"):
-                    print("Comando inválido. Usa: PARAR/REANUDAR/ESTADO/PARAR_TODOS")
-                    continue
-
-                orden = {"cp_id": cp_id, "cmd": cmd}
+                
+    def enviar_comando(self, cp_id, cmd):
+        if cp_id == "ALL":
+            for id_cp in self.cps.keys():
+                orden = {"cp_id": id_cp, "cmd": cmd}
                 self.productor.send(TOPIC_COMANDOS, orden)
-                self.productor.flush()
-                print(f"[CENTRAL] ORDEN {cmd} enviada a {cp_id}")
+                print(f"[CENTRAL] Comando {cmd} enviado a {id_cp}")
+        else:
+            orden = {"cp_id": cp_id, "cmd": cmd}
+            self.productor.send(TOPIC_COMANDOS, orden)
+            print(f"[CENTRAL] Comando {cmd} enviado a {cp_id}")
+        
+        self.productor.flush()
 
     def procesar_linea_monitor(self, linea: str):
         partes = (linea or "").strip().split()
@@ -549,9 +521,20 @@ class EV_Central:
             elif comando == "MON_AVERIA":
                 self.cps[cp_id]["estado"] = EST_AVERIA
                 print(f"[{ahora}] [CENTRAL] {cp_id} -> AVERIA (reportado por monitor)")
+                self.actualizar_estado_cp_en_bd(cp_id, EST_AVERIA)
+                orden = {"cp_id": cp_id, "cmd": "AVERIA"}
+                self.productor.send(TOPIC_COMANDOS, orden)
+                self.productor.flush()
+                print(f"[CENTRAL] Comando AVERIA enviado al CP {cp_id}")
+
             elif comando == "MON_RECUPERADO":
                 self.cps[cp_id]["estado"] = EST_ACTIVO
                 print(f"[{ahora}] [CENTRAL] {cp_id} -> ACTIVADO (monitor recuperado)")
+                self.actualizar_estado_cp_en_bd(cp_id, EST_ACTIVO)
+                orden = {"cp_id": cp_id, "cmd": "ACTIVADO"}
+                self.productor.send(TOPIC_COMANDOS, orden)
+                self.productor.flush()
+                print(f"[CENTRAL] Comando resolucion de contingenica enviado al CP {cp_id}")
             else:
                 print(f"[CENTRAL] Comando de monitor NO reconocido: {linea!r}")
 
@@ -600,7 +583,6 @@ class EV_Central:
         hilo_registros = threading.Thread(target=self.escuchar_registros_cp, daemon=True)
         hilo_estados = threading.Thread(target=self.escuchar_estados_cp, daemon=True)
         hilo_monitores = threading.Thread(target=self.servidor_monitores, daemon=True)
-        hilo_consola = threading.Thread(target=self.consola_comandos, daemon=True) # Para consola
         hilo_consultas = threading.Thread(target=self.escuchar_consultas_cps, daemon=True)
         
         # Iniciar todos los hilos
@@ -609,7 +591,6 @@ class EV_Central:
         hilo_registros.start()
         hilo_estados.start()
         hilo_monitores.start()
-        hilo_consola.start()
         hilo_consultas.start()
         
         print("Todos los servicios iniciados. La central está operativa.")
@@ -619,6 +600,56 @@ class EV_Central:
                 time.sleep(1)
         except KeyboardInterrupt:
             print("\nApagando central...")
+    def mostrar_menu_central(self):
+        try:
+            while True:
+                print("\n" + "="*60)
+                print("          MENÚ DE CONTROL DE LA CENTRAL")
+                print("="*60)
+                print("1. Parar un CP específico")
+                print("2. Parar todos los CPs")
+                print("3. Reanudar un CP específico")
+                print("4. Reanudar todos los CPs")
+                print("5. Salir")
+                print("="*60)
+
+                opcion = input("Seleccione una opción (1-5): ").strip()
+
+                if opcion == '1':
+                    cp_id = input("Ingrese el ID del CP a PARAR: ").strip()
+                    self.enviar_comando(cp_id, "PARAR")
+
+                elif opcion == '2':
+                    self.enviar_comando("ALL", "PARAR")
+
+                elif opcion == '3':
+                    cp_id = input("Ingrese el ID del CP a REANUDAR: ").strip()
+                    self.enviar_comando(cp_id, "REANUDAR")
+
+                elif opcion == '4':
+                    self.enviar_comando("ALL", "REANUDAR")
+
+                elif opcion == '5':
+                    print("Saliendo del menú de la central...")
+                    break
+
+                else:
+                    print("Opción no válida. Intente de nuevo.")
+
+        except KeyboardInterrupt:
+            print("\nSaliendo del menú por interrupción...")
+        except Exception as e:
+            print(f"Error en el menú de la central: {e}")
+    def iniciar_monitoreo_estados(self):
+        def mostrar_estados_periodicamente():
+            while True:
+                print("\n--- ESTADOS DE CPs ---")
+                for cp_id, datos in self.cps.items():
+                    estado = datos.get("estado", "N/A")
+                    print(f"{cp_id}: {estado}")
+                time.sleep(10)
+
+        threading.Thread(target=mostrar_estados_periodicamente, daemon=True).start()
 
 def main():
     if len(sys.argv) < 3:
@@ -632,7 +663,16 @@ def main():
     print(f"Kafka: {servidor_kafka}. BD: {servidor_bd}")
 
     ev_central = EV_Central(servidor_kafka, servidor_bd)
+    ev_central.iniciar_monitoreo_estados()
+
+    threading.Thread(target=ev_central.mostrar_menu_central, daemon=True).start()
+
     ev_central.iniciar_servicios()
 
+    try:
+        while True:
+            time.sleep(1)
+    except KeyboardInterrupt:
+        print("Apagando central...")
 if __name__ == "__main__":
     main()

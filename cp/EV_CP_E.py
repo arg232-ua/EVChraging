@@ -116,7 +116,7 @@ class EV_CP:
         if cmd == "PARAR":
             if self.cargando:
                 self.finalizar_carga(motivo="Parada por CENTRAL")
-                self.enviar_estado("PARADO", motivo="Central ordena PARAR")
+            self.enviar_estado("PARADO", motivo="Central ordena PARAR")
 
         elif cmd == "REANUDAR":
             self.enviar_estado("ACTIVADO", motivo="Central ordena REANUDAR")
@@ -124,9 +124,9 @@ class EV_CP:
         elif cmd == "AVERIA":
             if self.cargando:
                 self.finalizar_carga(motivo="Avería detectada; sesión abortada")
-                self.enviar_estado("AVERIA", motivo="Central marca AVERIA")
+            self.enviar_estado("AVERIA", motivo="Central marca AVERIA")
 
-        elif cmd == "RECUPERADO":
+        elif cmd == "ACTIVADO":
             self.enviar_estado("ACTIVADO", motivo="Central marca RECUPERADO")
 
         elif cmd == "INICIAR_CARGA":
