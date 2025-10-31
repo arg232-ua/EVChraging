@@ -69,7 +69,7 @@ class EV_CP:
         print(f"[EV_CP_E] No fue posible conectar con Kafka en {self.servidor_kafka}")
         return False
 
-    def registrar_cp(self):
+    def registrar_cp(self): #
         datos = {
             "tipo": "REGISTRO_CP",
             "ts": datetime.utcnow().isoformat(),
