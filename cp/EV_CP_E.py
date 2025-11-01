@@ -444,7 +444,7 @@ class EV_CP:
                 conn.sendall(b"KO\n")
                 return
                 
-            if self.estado == "ACTIVADO" or self.estado == "SUMINISTRANDO":
+            if self.estado in ("ACTIVADO", "SUMINISTRANDO", "PARADO"):
                 respuesta = "OK\n"
             else:
                 respuesta = "KO\n"

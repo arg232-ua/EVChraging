@@ -5,6 +5,7 @@ import sys
 import time
 import mysql.connector
 import socket
+import os
 
 TOPIC_REGISTROS = "registros_cp"
 TOPIC_COMANDOS  = "comandos_cp"
@@ -60,6 +61,7 @@ class EV_Central:
         self.productor = obtener_productor(servidor_kafka)
         self.cps = {}
         self.conexion_bd = None
+        self.activo = True
 
         self._lock = threading.Lock()
         self._lock_bd = threading.Lock()  # Lock específico para operaciones BD
@@ -631,6 +633,9 @@ class EV_Central:
 
                 elif opcion == '5':
                     print("Saliendo del menú de la central...")
+                    self.activo = False  # detener monitoreo
+                    os._exit(0)
+                    
                     break
 
                 else:
@@ -642,7 +647,7 @@ class EV_Central:
             print(f"Error en el menú de la central: {e}")
     def iniciar_monitoreo_estados(self):
         def mostrar_estados_periodicamente():
-            while True:
+            while self.activo:
                 print("\n--- ESTADOS DE CPs ---")
                 for cp_id, datos in self.cps.items():
                     estado = datos.get("estado", "N/A")
@@ -674,5 +679,7 @@ def main():
             time.sleep(1)
     except KeyboardInterrupt:
         print("Apagando central...")
+        ev_central.activo = False
+        os._exit(0)
 if __name__ == "__main__":
     main()
