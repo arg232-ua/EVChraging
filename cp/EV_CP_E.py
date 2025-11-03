@@ -435,7 +435,7 @@ class EV_CP:
         c = (cmd or "").strip().upper()
 
         if c.startswith("PING"):
-            # Esperar: "PING CP3" en lugar de solo "PING"
+            # Esperar: "PING 3" en lugar de solo "PING"
             partes = c.split()
             cp_solicitado = partes[1] if len(partes) > 1 else None
             

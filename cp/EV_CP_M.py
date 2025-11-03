@@ -60,8 +60,11 @@ def monitorizar(engine_addr, central_addr, cp_id, intervalo=2.0):
 
 def menu_monitor(engine_addr, central_addr, cp_id):
     """Menú para simular manualmente averías y recuperaciones."""
-    estado_simulado = "OK"
+
     while True:
+        ok = ping_engine(engine_addr, cp_id)
+        estado_simulado = "OK" if ok else "KO"
+
         print("\n" + "="*45)
         print(f" Monitor del CP {cp_id}")
         print("="*45)

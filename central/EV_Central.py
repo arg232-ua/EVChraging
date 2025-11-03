@@ -521,13 +521,14 @@ class EV_Central:
             elif comando == "HELLO":
                 print(f"[{ahora}] [CENTRAL] Monitor avisa de {cp_id}. Estado actual: {self.cps[cp_id]['estado']} --> TODO OK")
             elif comando == "MON_AVERIA":
-                self.cps[cp_id]["estado"] = EST_AVERIA
-                print(f"[{ahora}] [CENTRAL] {cp_id} -> AVERIA (reportado por monitor)")
-                self.actualizar_estado_cp_en_bd(cp_id, EST_AVERIA)
-                orden = {"cp_id": cp_id, "cmd": "AVERIA"}
-                self.productor.send(TOPIC_COMANDOS, orden)
-                self.productor.flush()
-                print(f"[CENTRAL] Comando AVERIA enviado al CP {cp_id}")
+                if self.cps[cp_id]["estado"] != EST_DESC:
+                    self.cps[cp_id]["estado"] = EST_AVERIA
+                    print(f"[{ahora}] [CENTRAL] {cp_id} -> AVERIA (reportado por monitor)")
+                    self.actualizar_estado_cp_en_bd(cp_id, EST_AVERIA)
+                    orden = {"cp_id": cp_id, "cmd": "AVERIA"}
+                    self.productor.send(TOPIC_COMANDOS, orden)
+                    self.productor.flush()
+                    print(f"[CENTRAL] Comando AVERIA enviado al CP {cp_id}")
 
             elif comando == "MON_RECUPERADO":
                 self.cps[cp_id]["estado"] = EST_ACTIVO

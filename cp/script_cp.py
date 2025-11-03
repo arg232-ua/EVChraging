@@ -23,8 +23,8 @@ def lanzar_cps(n, kafka_broker, central_host, precio_base, port_base):
 
 # CONFIGURA TUS DATOS AQUÍ
 N_CP = 2
-KAFKA_BROKER = "172.23.64.1:9092"
-CENTRAL_HOST = "172.23.64.1"
+KAFKA_BROKER = "172.27.216.51:9092"
+CENTRAL_HOST = "172.27.216.51"
 PRECIO_BASE = 0.35
 PORT_BASE = 6000  # El primero será 6001, luego 6002, ...
 
