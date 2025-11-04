@@ -42,6 +42,7 @@ class EV_CP:
         self.enchufado = False
 
         self.productor = None
+        
 
         self.cargando = False
         self.driver_en_carga = None
@@ -308,6 +309,14 @@ class EV_CP:
             print(f"[EV_CP_E] Error al cerrar productor Kafka: {e}")
         
         print(f"[EV_CP_E] CP {self.cp_id} completamente desconectado")
+    def central_disponible(self):
+        try:
+            # Enviamos una comprobación a un topic de prueba (puede ser el mismo de estado)
+            self.productor.partitions_for(TOPIC_ESTADO)
+            return True
+        except Exception:
+            return False
+
 
     def mostrar_menu_local(self):
         try:
@@ -362,12 +371,18 @@ class EV_CP:
                         self.enchufado = False
 
                 elif opcion == '4':
+                    if not self.central_disponible():
+                        print("No se puede poner en PARADO: la central no está disponible.")
+                        continue
                     if self.cargando:
                         print("Hay una carga en curso; se finalizará antes de poner en PARADO.")
                         self.finalizar_carga(motivo="Parado local: finalizando carga")
                     self.enviar_estado("PARADO", motivo="Parado ordenado localmente")
 
                 elif opcion == '5':
+                    if not self.central_disponible():
+                        print("No se puede reanudar: la central no está disponible.")
+                        continue
                     # Reanudar: volver a ACTIVADO si no hay avería
                     if self.estado == 'AVERIA':
                         print("El CP está en AVERIA y no puede reanudar hasta resolver la avería.")

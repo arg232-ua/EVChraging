@@ -62,6 +62,8 @@ class EV_Central:
         self.cps = {}
         self.conexion_bd = None
         self.activo = True
+        
+        
 
         self._lock = threading.Lock()
         self._lock_bd = threading.Lock()  # Lock específico para operaciones BD
@@ -633,6 +635,12 @@ class EV_Central:
                     self.enviar_comando("ALL", "REANUDAR")
 
                 elif opcion == '5':
+                    with self._lock:
+                        for cp_id, datos in self.cps.items():
+                            if datos.get("estado") != EST_DESC:
+                                self.enviar_comando(cp_id, "PARAR")
+                                self.actualizar_estado_cp_en_bd(cp_id, EST_PARADO)
+                    time.sleep(10)
                     print("Saliendo del menú de la central...")
                     self.activo = False  # detener monitoreo
                     os._exit(0)
