@@ -88,14 +88,14 @@ class EV_CP:
             print(f"[EV_CP_E] Estado ignorado (no válido): {nuevo_estado}")
             return
 
-        self.estado = nuevo_estado
         datos = {
             "ts": datetime.utcnow().isoformat(),
             "cp_id": self.cp_id,
-            "estado": self.estado,
+            "estado": nuevo_estado,  # Usamos nuevo_estado en lugar de self.estado
             "motivo": motivo,
             "precio_eur_kwh": self.precio
         }
+
         if self.cargando or nuevo_estado == "SUMINISTRANDO":
             datos.update({
                 "driver_id": self.driver_en_carga,
@@ -103,12 +103,18 @@ class EV_CP:
                 "importe_eur": round(self.importe_eur, 4),
                 "potencia_kw": self.potencia_kw
             })
+
         if fin:
             datos["fin_carga"] = True
 
-        self.productor.send(TOPIC_ESTADO, key=self.cp_id, value=datos)
-        self.productor.flush()
-        print(f"[EV_CP_E] Estado publicado -> {self.cp_id}: {self.estado} ({motivo})")
+        try:
+            self.productor.send(TOPIC_ESTADO, key=self.cp_id, value=datos)
+            self.productor.flush()
+            self.estado = nuevo_estado  # Solo actualizamos estado si el envío fue exitoso
+            print(f"[EV_CP_E] Estado publicado -> {self.cp_id}: {self.estado} ({motivo})")
+        except Exception:
+            print(f"[EV_CP_E] ERROR al publicar estado '{nuevo_estado}' ({motivo}). No se cambia estado localmente.")
+
 
     def _handle_command(self, msg: dict):
         cmd = (msg.get("cmd") or "").upper()
@@ -162,7 +168,7 @@ class EV_CP:
                 if not isinstance(msg, dict):
                     continue
                 destino = msg.get("cp_id")
-                if destino not in (self.cp_id, "ALL"):
+                if destino not in (str(self.cp_id), "ALL"):
                     continue
                 self._handle_command(msg)
         except Exception as e:
