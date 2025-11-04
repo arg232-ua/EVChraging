@@ -337,19 +337,22 @@ class EV_CP:
                     if self.cargando:
                         print("Ya hay una recarga en curso. Use Desenchufar si desea finalizarla.")
                     else:
-                        driver_id = input("Driver_id asociado a la recarga (simulado): ").strip()
-                        potencia = input("Potencia (kW) [enter=7.4]: ").strip()
-                        potencia_val = None
-                        if potencia:
-                            try:
-                                potencia_val = float(potencia)
-                            except Exception:
-                                potencia_val = None
-                        if not driver_id:
-                            print("Debe proporcionar un driver_id para iniciar suministro.")
+                        if self.estado == "SUMINISTRANDO":
+                            driver_id = input("Driver_id asociado a la recarga (simulado): ").strip()
+                            potencia = input("Potencia (kW) [enter=7.4]: ").strip()
+                            potencia_val = None
+                            if potencia:
+                                try:
+                                    potencia_val = float(potencia)
+                                except Exception:
+                                    potencia_val = None
+                            if not driver_id:
+                                print("Debe proporcionar un driver_id para iniciar suministro.")
+                            else:
+                                self.iniciar_carga(driver_id, potencia_val)
+                            self.enchufado = True
                         else:
-                            self.iniciar_carga(driver_id, potencia_val)
-                        self.enchufado = True
+                            print(f"Debe haber una solicitud en el CP {self.cp_id} para iniciar suministro.")
 
                 elif opcion == '3':
                     if not self.cargando:

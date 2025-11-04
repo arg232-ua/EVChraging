@@ -6,6 +6,16 @@ def lanzar_cps(n, kafka_broker, central_host, precio_base, port_base):
         cp_id = i
         puerto_engine = port_base + i
 
+        # Verifica si el puerto está disponible
+        import socket
+        sock = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
+        result = sock.connect_ex(('localhost', puerto_engine))
+        sock.close()
+        
+        if result == 0:
+            print(f"Puerto {puerto_engine} en uso, usando alternativo")
+            puerto_engine += 100  # Usa puerto alternativo
+        
         # Ubicación personalizada por CP
         ubicacion = f"Zona {i} – EPS 4 – Universidad de Alicante"
 
