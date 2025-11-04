@@ -29,7 +29,7 @@ def obtener_consumidor(topico, grupo_id, servidor_kafka, auto_offset_reset="late
         group_id=grupo_id,
         auto_offset_reset=auto_offset_reset,
         enable_auto_commit=True,
-        key_deserializer=lambda k: k.decode("utf-8") if k else None,
+        key_deserializer=lambda k: k.decode("utf-8") if k else None
     )
 
 class EV_CP:
@@ -117,17 +117,21 @@ class EV_CP:
         if cmd == "PARAR":
             if self.cargando:
                 self.finalizar_carga(motivo="Parada por CENTRAL")
+            self.estado = "PARADO"
             self.enviar_estado("PARADO", motivo="Central ordena PARAR")
 
         elif cmd == "REANUDAR":
+            self.estado = "ACTIVADO"
             self.enviar_estado("ACTIVADO", motivo="Central ordena REANUDAR")
 
         elif cmd == "AVERIA":
             if self.cargando:
                 self.finalizar_carga(motivo="Avería detectada; sesión abortada")
+            self.estado = "AVERIA"
             self.enviar_estado("AVERIA", motivo="Central marca AVERIA")
 
         elif cmd == "ACTIVADO":
+            self.estado = "ACTIVADO" 
             self.enviar_estado("ACTIVADO", motivo="Central marca RECUPERADO")
 
         elif cmd == "INICIAR_CARGA":
@@ -150,23 +154,26 @@ class EV_CP:
 
     def escuchar_comandos(self):
         try:
+            # ✅ ESCUCHAR SOLO EL TOPIC ESPECÍFICO DE ESTE CP
+            topic_especifico = f"comandos_cp_{self.cp_id}"
             consumidor = obtener_consumidor(
-                topico=TOPIC_COMANDOS,
-                grupo_id=f"cp_{self.cp_id}",
+                topico=topic_especifico,
+                grupo_id=f"cp_{self.cp_id}_comandos",  # Grupo específico para este topic
                 servidor_kafka=self.servidor_kafka,
                 auto_offset_reset="latest"
             )
-            print(f"[EV_CP_E] Escuchando comandos en '{TOPIC_COMANDOS}' (grupo=cp_{self.cp_id})...")
+            print(f"[EV_CP_E] Escuchando comandos en topic exclusivo: '{topic_especifico}'...")
+            
             for record in consumidor:
                 msg = record.value
-                if not isinstance(msg, dict):
-                    continue
-                destino = msg.get("cp_id")
-                if destino not in (self.cp_id, "ALL"):
-                    continue
+                # ✅ YA NO NECESITAS FILTRAR POR KEY - todos los mensajes son para este CP
+                print(f"[EV_CP_E] Comando recibido: {msg}")
                 self._handle_command(msg)
+                    
         except Exception as e:
             print(f"[EV_CP_E] Error en escuchar_comandos: {e}")
+            import traceback
+            traceback.print_exc()
 
     def _bucle_carga(self):
         try:
@@ -346,7 +353,6 @@ class EV_CP:
                     if self.cargando:
                         print("Ya hay una recarga en curso. Use Desenchufar si desea finalizarla.")
                     else:
-                        if self.estado == "SUMINISTRANDO":
                             driver_id = input("Driver_id asociado a la recarga (simulado): ").strip()
                             potencia = input("Potencia (kW) [enter=7.4]: ").strip()
                             potencia_val = None
@@ -360,8 +366,6 @@ class EV_CP:
                             else:
                                 self.iniciar_carga(driver_id, potencia_val)
                             self.enchufado = True
-                        else:
-                            print(f"Debe haber una solicitud en el CP {self.cp_id} para iniciar suministro.")
 
                 elif opcion == '3':
                     if not self.cargando:

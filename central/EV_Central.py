@@ -24,6 +24,7 @@ def obtener_productor(servidor_kafka):
     return KafkaProducer(
         bootstrap_servers=[servidor_kafka],
         value_serializer=lambda v: json.dumps(v).encode('utf-8'),
+        key_serializer=lambda k: k.encode('utf-8') if k else None,
     )
 
 def obtener_consumidor(topico, grupo_id, servidor_kafka):
@@ -208,7 +209,7 @@ class EV_Central:
                 print(f"CP {cp_id} ya existe en BD, actualizando información...")
                 consulta = """
                     UPDATE punto_recarga 
-                    SET ubicacion_punto_recarga = %s, precio = %s, estado = 'DESCONECTADO'
+                    SET ubicacion_punto_recarga = %s, precio = %s, estado = 'ACTIVADO'
                     WHERE id_punto_recarga = %s
                 """
                 cursor.execute(consulta, (ubicacion, precio, cp_id))
@@ -216,7 +217,7 @@ class EV_Central:
                 print(f"Registrando nuevo CP {cp_id} en BD...")
                 consulta = """
                     INSERT INTO punto_recarga (id_punto_recarga, id_central, ubicacion_punto_recarga, precio, estado) 
-                    VALUES (%s, '0039051', %s, %s, 'DESCONECTADO')
+                    VALUES (%s, '0039051', %s, %s, 'ACTIVADO')
                 """
                 cursor.execute(consulta, (cp_id, ubicacion, precio))
             
@@ -494,17 +495,48 @@ class EV_Central:
                 self.actualizar_estado_cp_en_bd(cp_id, estado_inicial)
                 
     def enviar_comando(self, cp_id, cmd):
-        if cp_id == "ALL":
-            for id_cp in self.cps.keys():
-                orden = {"cp_id": id_cp, "cmd": cmd}
-                self.productor.send(TOPIC_COMANDOS, orden)
-                print(f"[CENTRAL] Comando {cmd} enviado a {id_cp}")
-        else:
-            orden = {"cp_id": cp_id, "cmd": cmd}
-            self.productor.send(TOPIC_COMANDOS, orden)
-            print(f"[CENTRAL] Comando {cmd} enviado a {cp_id}")
-        
-        self.productor.flush()
+        try:
+            print(f"🔧 [CENTRAL] Enviando comando '{cmd}' a '{cp_id}'")
+            
+            if cp_id == "ALL":
+                cps_list = list(self.cps.keys())
+                if not cps_list:
+                    print("❌ [CENTRAL] No hay CPs registrados para enviar comando")
+                    return
+                    
+                print(f"🔧 [CENTRAL] Enviando a {len(cps_list)} CPs: {cps_list}")
+                for id_cp in cps_list:
+                    orden = {
+                        "cp_id": id_cp, 
+                        "cmd": cmd,
+                        "timestamp": time.time()
+                    }
+                    # ✅ ENVIAR AL TOPIC ESPECÍFICO DEL CP
+                    topic_destino = f"comandos_cp_{id_cp}"
+                    self.productor.send(topic_destino, value=orden)
+                    print(f"✅ [CENTRAL] Comando {cmd} enviado a CP {id_cp} en topic {topic_destino}")
+            else:
+                if cp_id not in self.cps:
+                    print(f"❌ [CENTRAL] CP {cp_id} no encontrado. CPs registrados: {list(self.cps.keys())}")
+                    return
+                    
+                orden = {
+                    "cp_id": cp_id, 
+                    "cmd": cmd,
+                    "timestamp": time.time()
+                }
+                # ✅ ENVIAR AL TOPIC ESPECÍFICO DEL CP
+                topic_destino = f"comandos_cp_{cp_id}"
+                self.productor.send(topic_destino, value=orden)
+                print(f"✅ [CENTRAL] Comando {cmd} enviado a CP {cp_id} en topic {topic_destino}")
+            
+            self.productor.flush()
+            print(f"🔧 [CENTRAL] Flush completado para comando {cmd}")
+            
+        except Exception as e:
+            print(f"❌ [CENTRAL] ERROR al enviar comando: {e}")
+            import traceback
+            traceback.print_exc()
 
     def procesar_linea_monitor(self, linea: str):
         partes = (linea or "").strip().split()
@@ -601,13 +633,15 @@ class EV_Central:
         print("Todos los servicios iniciados. La central está operativa.")
         
         try:
-            while True:
+            # ✅ USAR self.activo COMO CONDICIÓN
+            while self.activo:
                 time.sleep(1)
         except KeyboardInterrupt:
             print("\nApagando central...")
+
     def mostrar_menu_central(self):
         try:
-            while True:
+            while self.activo:
                 print("\n" + "="*60)
                 print("          MENÚ DE CONTROL DE LA CENTRAL")
                 print("="*60)
@@ -622,29 +656,33 @@ class EV_Central:
 
                 if opcion == '1':
                     cp_id = input("Ingrese el ID del CP a PARAR: ").strip()
-                    self.enviar_comando(cp_id, "PARAR")
+                    if cp_id in self.cps:  # ✅ Verificar que existe
+                        self.enviar_comando(cp_id, "PARAR")
+                    else:
+                        print(f"❌ CP {cp_id} no encontrado en central")
 
                 elif opcion == '2':
-                    self.enviar_comando("ALL", "PARAR")
+                    if self.cps:  # ✅ Verificar que hay CPs
+                        self.enviar_comando("ALL", "PARAR")
+                    else:
+                        print("❌ No hay CPs registrados en la central")
 
                 elif opcion == '3':
                     cp_id = input("Ingrese el ID del CP a REANUDAR: ").strip()
-                    self.enviar_comando(cp_id, "REANUDAR")
+                    if cp_id in self.cps:  # ✅ Verificar que existe
+                        self.enviar_comando(cp_id, "REANUDAR")
+                    else:
+                        print(f"❌ CP {cp_id} no encontrado en central")
 
                 elif opcion == '4':
-                    self.enviar_comando("ALL", "REANUDAR")
+                    if self.cps:  # ✅ Verificar que hay CPs
+                        self.enviar_comando("ALL", "REANUDAR")
+                    else:
+                        print("❌ No hay CPs registrados en la central")
 
                 elif opcion == '5':
-                    with self._lock:
-                        for cp_id, datos in self.cps.items():
-                            if datos.get("estado") != EST_DESC:
-                                self.enviar_comando(cp_id, "PARAR")
-                                self.actualizar_estado_cp_en_bd(cp_id, EST_PARADO)
-                    time.sleep(10)
                     print("Saliendo del menú de la central...")
                     self.activo = False  # detener monitoreo
-                    os._exit(0)
-                    
                     break
 
                 else:
@@ -654,6 +692,65 @@ class EV_Central:
             print("\nSaliendo del menú por interrupción...")
         except Exception as e:
             print(f"Error en el menú de la central: {e}")
+
+    def ver_cps_bd(self):
+        """Obtiene información completa de todos los CPs con colores"""
+        conexion = self.obtener_conexion_bd()
+        if not conexion:
+            return {"total_cps": 0, "cps": []}
+        
+        try:
+            cursor = conexion.cursor()
+            consulta = "SELECT id_punto_recarga, estado FROM punto_recarga ORDER BY id_punto_recarga"
+            cursor.execute(consulta)
+            resultados = cursor.fetchall()
+            cursor.close()
+            
+            # Procesar resultados
+            cps_info = [
+                {"id": cp[0], "estado": cp[1]}
+                for cp in resultados
+            ]
+            
+            info_completa = {
+                "total_cps": len(resultados),
+                "cps": cps_info
+            }
+            
+            # Usar los mismos colores definidos en iniciar_monitoreo_estados
+            COLOR_RESET = "\033[0m"
+            COLOR_VERDE = "\033[92m"
+            COLOR_NARANJA = "\033[93m"
+            COLOR_ROJO = "\033[91m"
+            COLOR_GRIS = "\033[90m"
+            
+            print(f"[BD] Encontrados {info_completa['total_cps']} CPs en la base de datos")
+            
+            # Imprimir cada CP con su color correspondiente
+            for cp in cps_info:
+                estado = cp["estado"]
+                color = COLOR_RESET  # Por defecto
+                
+                # Asignar color según el estado (igual que en iniciar_monitoreo_estados)
+                if estado == "ACTIVADO":
+                    color = COLOR_VERDE
+                elif estado == "PARADO":
+                    color = COLOR_NARANJA
+                elif estado == "SUMINISTRANDO":
+                    color = COLOR_VERDE
+                elif estado == "AVERIA":
+                    color = COLOR_ROJO
+                elif estado == "DESCONECTADO":
+                    color = COLOR_GRIS
+                
+                print(f"ID: {cp['id']}, ESTADO: {color}\"{estado}\"{COLOR_RESET}")
+                
+            return info_completa
+            
+        except Exception as e:
+            print(f"Error al obtener información de CPs en BD: {e}")
+            return {"total_cps": 0, "cps": []}
+
     def iniciar_monitoreo_estados(self):
         def mostrar_estados_periodicamente():
             COLOR_RESET = "\033[0m"
@@ -663,29 +760,48 @@ class EV_Central:
             COLOR_GRIS = "\033[90m"
 
             while self.activo:
-                print("\n--- ESTADOS DE CPs ---")
-                for cp_id, datos in self.cps.items():
-                    estado = datos.get("estado", "N/A")
-                    color = COLOR_RESET
-                    info_extra = ""
+                print("\n" + "="*50)
+                print("          ESTADOS ACTUALES DE CPs")
+                print("="*50)
+                
+                # Llamar a la función que muestra CPs de BD con colores
+                self.ver_cps_bd()
+                time.sleep(2)
+                print("-" * 50)
+                print("          ESTADOS EN MEMORIA DE LA CENTRAL")
+                print("-" * 50)
 
-                    if estado == "ACTIVADO":
-                        color = COLOR_VERDE
-                    elif estado == "PARADO":
-                        color = COLOR_NARANJA
-                        info_extra = " [Out of Order]"
-                    elif estado == "SUMINISTRANDO":
-                        color = COLOR_VERDE
-                    elif estado == "AVERIA":
-                        color = COLOR_ROJO
-                    elif estado == "DESCONECTADO":
-                        color = COLOR_GRIS
+                if not self.cps:
+                    print("❌ No hay CPs conectados con la central")
+                else:
+                    for cp_id, datos in self.cps.items():
+                        estado = datos.get("estado", "N/A")
+                        ubicacion = datos.get("ubicacion", "N/A")
+                        color = COLOR_RESET
+                        icono = "⚡"
 
-                    print(f"{color}{cp_id}: {estado}{info_extra}{COLOR_RESET}")
+                        if estado == "ACTIVADO":
+                            color = COLOR_VERDE
+                            icono = "✅"
+                        elif estado == "PARADO":
+                            color = COLOR_NARANJA
+                            icono = "⏸️"
+                        elif estado == "SUMINISTRANDO":
+                            color = COLOR_VERDE
+                            icono = "🔌"
+                        elif estado == "AVERIA":
+                            color = COLOR_ROJO
+                            icono = "🚨"
+                        elif estado == "DESCONECTADO":
+                            color = COLOR_GRIS
+                            icono = "🔌"
+
+                        print(f"{icono} {color}{cp_id}: {estado} - {ubicacion}{COLOR_RESET}")
+                
+                print("="*50)
                 time.sleep(10)
 
         threading.Thread(target=mostrar_estados_periodicamente, daemon=True).start()
-
 
 def main():
     if len(sys.argv) < 3:
@@ -700,17 +816,34 @@ def main():
 
     ev_central = EV_Central(servidor_kafka, servidor_bd)
     ev_central.iniciar_monitoreo_estados()
+    time.sleep(3)
 
-    threading.Thread(target=ev_central.mostrar_menu_central, daemon=True).start()
+    # Crear hilo del menú (no daemon para que no se cierre abruptamente)
+    hilo_menu = threading.Thread(target=ev_central.mostrar_menu_central)
+    hilo_menu.start()
 
     ev_central.iniciar_servicios()
 
     try:
-        while True:
-            time.sleep(1)
+        # Esperar a que el hilo del menú termine
+        hilo_menu.join()
+        
+        print("\n🔴 Cerrando central...")
+        ev_central.activo = False  # Detener todos los servicios
+        
+        # Dar tiempo para que los servicios se cierren correctamente
+        time.sleep(2)
+        
+        print("✅ Central cerrada correctamente")
+        
     except KeyboardInterrupt:
-        print("Apagando central...")
+        print("\n🔴 Interrupción recibida. Cerrando central...")
         ev_central.activo = False
-        os._exit(0)
+        time.sleep(2)
+        print("✅ Central cerrada correctamente")
+    
+    # ✅ SALIR DEL PROGRAMA
+    sys.exit(0)
+
 if __name__ == "__main__":
     main()
