@@ -648,14 +648,36 @@ class EV_Central:
             print(f"Error en el menú de la central: {e}")
     def iniciar_monitoreo_estados(self):
         def mostrar_estados_periodicamente():
+            COLOR_RESET = "\033[0m"
+            COLOR_VERDE = "\033[92m"
+            COLOR_NARANJA = "\033[93m"
+            COLOR_ROJO = "\033[91m"
+            COLOR_GRIS = "\033[90m"
+
             while self.activo:
                 print("\n--- ESTADOS DE CPs ---")
                 for cp_id, datos in self.cps.items():
                     estado = datos.get("estado", "N/A")
-                    print(f"{cp_id}: {estado}")
+                    color = COLOR_RESET
+                    info_extra = ""
+
+                    if estado == "ACTIVADO":
+                        color = COLOR_VERDE
+                    elif estado == "PARADO":
+                        color = COLOR_NARANJA
+                        info_extra = " [Out of Order]"
+                    elif estado == "SUMINISTRANDO":
+                        color = COLOR_VERDE
+                    elif estado == "AVERIA":
+                        color = COLOR_ROJO
+                    elif estado == "DESCONECTADO":
+                        color = COLOR_GRIS
+
+                    print(f"{color}{cp_id}: {estado}{info_extra}{COLOR_RESET}")
                 time.sleep(10)
 
         threading.Thread(target=mostrar_estados_periodicamente, daemon=True).start()
+
 
 def main():
     if len(sys.argv) < 3:
