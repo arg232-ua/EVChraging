@@ -511,7 +511,7 @@ class EV_Central:
                         "cmd": cmd,
                         "timestamp": time.time()
                     }
-                    # ✅ ENVIAR AL TOPIC ESPECÍFICO DEL CP
+                    # ENVIAR AL TOPIC ESPECÍFICO DEL CP
                     topic_destino = f"comandos_cp_{id_cp}"
                     self.productor.send(topic_destino, value=orden)
                     print(f"✅ [CENTRAL] Comando {cmd} enviado a CP {id_cp} en topic {topic_destino}")
@@ -525,7 +525,7 @@ class EV_Central:
                     "cmd": cmd,
                     "timestamp": time.time()
                 }
-                # ✅ ENVIAR AL TOPIC ESPECÍFICO DEL CP
+                # ENVIAR AL TOPIC ESPECÍFICO DEL CP
                 topic_destino = f"comandos_cp_{cp_id}"
                 self.productor.send(topic_destino, value=orden)
                 print(f"✅ [CENTRAL] Comando {cmd} enviado a CP {cp_id} en topic {topic_destino}")
@@ -560,7 +560,7 @@ class EV_Central:
                     print(f"[{ahora}] [CENTRAL] {cp_id} -> AVERIA (reportado por monitor)")
                     self.actualizar_estado_cp_en_bd(cp_id, EST_AVERIA)
                     orden = {"cp_id": cp_id, "cmd": "AVERIA"}
-                    self.productor.send(TOPIC_COMANDOS, orden)
+                    self.productor.send(f"comandos_cp_{cp_id}", orden)
                     self.productor.flush()
                     print(f"[CENTRAL] Comando AVERIA enviado al CP {cp_id}")
 
@@ -569,7 +569,7 @@ class EV_Central:
                 print(f"[{ahora}] [CENTRAL] {cp_id} -> ACTIVADO (monitor recuperado)")
                 self.actualizar_estado_cp_en_bd(cp_id, EST_ACTIVO)
                 orden = {"cp_id": cp_id, "cmd": "ACTIVADO"}
-                self.productor.send(TOPIC_COMANDOS, orden)
+                self.productor.send(f"comandos_cp_{cp_id}", orden)
                 self.productor.flush()
                 print(f"[CENTRAL] Comando resolucion de contingenica enviado al CP {cp_id}")
             else:
