@@ -1,5 +1,6 @@
 import subprocess
 import time
+import sys
 
 def lanzar_cps(n, kafka_broker, central_host, precio_base, port_base):
     for i in range(1, n + 1):
@@ -31,11 +32,25 @@ def lanzar_cps(n, kafka_broker, central_host, precio_base, port_base):
         print(f"Lanzado EV_CP_M CP {cp_id}")
         time.sleep(0.5)
 
-# CONFIGURA TUS DATOS AQUÍ
-N_CP = 2
-KAFKA_BROKER = "192.168.0.20:9092"
-CENTRAL_HOST = "192.168.0.20"
-PRECIO_BASE = 0.35
-PORT_BASE = 6000  # El primero será 6001, luego 6002, ...
+def main():
+    if len(sys.argv) != 4:
+        print("ERROR: Argumentos incorrectos")
+        print("Uso: python script_cp.py <IP:puerto_broker> <IP:Central> <Número_de_CPs_a_inicializar>")
+        # Ejemplo: python script_cp.py <IP_del_PC_de_los_CPS:9092> <IP_deL_PC_de_la_central> <10>
+        sys.exit(1)
 
-lanzar_cps(N_CP, KAFKA_BROKER, CENTRAL_HOST, PRECIO_BASE,PORT_BASE)
+    servidor_kafka = sys.argv[1]
+    central = sys.argv[2]
+    numero_cps = sys.argv[3]
+
+    N_CP = int(numero_cps)
+    KAFKA_BROKER = servidor_kafka
+    CENTRAL_HOST = central
+    PRECIO_BASE = 0.35
+    PORT_BASE = 6000  # El primero será 6001, luego 6002, ...
+
+
+    lanzar_cps(N_CP, KAFKA_BROKER, CENTRAL_HOST, PRECIO_BASE,PORT_BASE)
+
+if __name__ == "__main__":
+    main()

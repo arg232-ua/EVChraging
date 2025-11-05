@@ -154,7 +154,6 @@ class EV_CP:
 
     def escuchar_comandos(self):
         try:
-            # ✅ ESCUCHAR SOLO EL TOPIC ESPECÍFICO DE ESTE CP
             topic_especifico = f"comandos_cp_{self.cp_id}"
             consumidor = obtener_consumidor(
                 topico=topic_especifico,
