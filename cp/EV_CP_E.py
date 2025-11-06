@@ -5,6 +5,7 @@ from datetime import datetime
 from kafka import KafkaProducer, KafkaConsumer
 import threading
 import socket
+import signal
 
 TOPIC_REGISTROS = "registros_cp"
 TOPIC_COMANDOS  = "comandos_cp"
@@ -144,6 +145,12 @@ class EV_CP:
             self.estado = "AVERIA"
             self.enviar_estado("AVERIA", motivo="Central marca AVERIA")
 
+        elif cmd == "DESCONECTADO":
+            if self.cargando:
+                self.finalizar_carga(motivo="Avería detectada en Monitor; sesión abortada")
+            self.estado = "DESCONECTADO"
+            self.enviar_estado("DESCONECTADO", motivo="Central marca DESCONECTADO")
+
         elif cmd == "ACTIVADO":
             self.estado = "ACTIVADO" 
             self.enviar_estado("ACTIVADO", motivo="Central marca RECUPERADO")
@@ -179,7 +186,6 @@ class EV_CP:
             
             for record in consumidor:
                 msg = record.value
-                # ✅ YA NO NECESITAS FILTRAR POR KEY - todos los mensajes son para este CP
                 print(f"[EV_CP_E] Comando recibido: {msg}")
                 self._handle_command(msg)
                     

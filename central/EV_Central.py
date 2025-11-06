@@ -46,7 +46,12 @@ def conectar_bd(servidor_bd):
             port=puerto_bd,
             user="sd_remoto",
             password="1234",
-            database="evcharging"
+            database="evcharging",
+            charset='utf8mb4',
+            collation='utf8mb4_unicode_ci',
+            connection_timeout=10,
+            pool_size=5,
+            pool_reset_session=True
         )
 
         print(f"Servidor conectado a la Base de Datos en {servidor_bd}")
@@ -61,20 +66,22 @@ class EV_Central:
         self.servidor_bd = servidor_bd
         self.productor = obtener_productor(servidor_kafka)
         self.cps = {}
-        self.conexion_bd = None
         self.activo = True
         
-        
-
         self._lock = threading.Lock()
-        self._lock_bd = threading.Lock()  # Lock específico para operaciones BD
         self.driver_por_cp = {}
         self.cp_por_driver = {}
 
-        self.conectar_bd_inicial()
+        # Test de conexión inicial
+        conexion_test = self.obtener_conexion_bd()
+        if conexion_test:
+            print(f"✅ Test de conexión BD exitoso")
+            conexion_test.close()
+        else:
+            print("❌ No se pudo conectar a BD inicialmente")
 
         self.inicio = time.time()
-        print(f"Central inicializada y conectada a Kafka: {servidor_kafka} y BD: {servidor_bd}")
+        print(f"Central inicializada y conectada a Kafka: {servidor_kafka}")
         self.notificar_central_operativa()
 
     def notificar_central_operativa(self):
@@ -128,62 +135,22 @@ class EV_Central:
             cursor.execute(consulta)
             resultados = cursor.fetchall()
             cursor.close()
+            conexion.close()  # ✅ Cerrar conexión después de usar
             return [cp[0] for cp in resultados]
         except Exception as e:
             print(f"Error al obtener CPs de BD: {e}")
-            return []
-    def conectar_bd_inicial(self):
-        """Conexión inicial a BD"""
-        try:
-            self.conexion_bd = conectar_bd(self.servidor_bd)
-            return self.conexion_bd is not None
-        except Exception as e:
-            print(f"Error en conexión inicial BD: {e}")
-            return False
-
-    def obtener_conexion_bd(self):
-        """Obtiene una conexión válida a BD, reconectando si es necesario"""
-        with self._lock_bd:
             try:
-                # Verificar si la conexión existe y está viva
-                if self.conexion_bd and self.conexion_bd.is_connected():
-                    return self.conexion_bd
-                else:
-                    # Reconectar si no está conectada
-                    print("Reconectando a BD...")
-                    self.conexion_bd = conectar_bd(self.servidor_bd)
-                    return self.conexion_bd
-            except Exception as e:
-                print(f"Error al obtener conexión BD: {e}")
-                return None
-
-    def ejecutar_consulta_bd(self, consulta, parametros=None, operacion="consulta"):
-        """Ejecuta una consulta de forma segura manejando reconexiones"""
-        conexion = self.obtener_conexion_bd()
-        if not conexion:
-            print(f"No hay conexión a BD para {operacion}")
-            return None
-        
-        try:
-            cursor = conexion.cursor()
-            cursor.execute(consulta, parametros or ())
-            
-            if operacion == "consulta":
-                resultado = cursor.fetchall()
-                cursor.close()
-                return resultado
-            else:  # inserción/actualización
-                conexion.commit()
-                cursor.close()
-                return True
-                
-        except mysql.connector.Error as e:
-            print(f"Error en {operacion} BD: {e}")
-            # Intentar reconectar en caso de error
-            try:
-                self.conexion_bd = conectar_bd(self.servidor_bd)
+                conexion.close()
             except:
                 pass
+            return []
+        
+    def obtener_conexion_bd(self):
+        """Obtiene una nueva conexión a BD para cada operación (evita problemas de concurrencia)"""
+        try:
+            return conectar_bd(self.servidor_bd)
+        except Exception as e:
+            print(f"❌ Error al crear nueva conexión BD: {e}")
             return None
 
     def verifico_driver(self, driver_id):
@@ -198,6 +165,7 @@ class EV_Central:
             cursor.execute(consulta, (driver_id,))
             resultado = cursor.fetchone()
             cursor.close()
+            conexion.close()
             
             if resultado[0] > 0:
                 print(f"Conductor {driver_id} verificado en la Base de Datos.")
@@ -207,6 +175,7 @@ class EV_Central:
                 return False
         except Exception as e:
             print(f"Error al consultar el Conductor en la Base de Datos: {e}")
+            conexion.close()
             return False
 
     def verifico_cp(self, cp_id):
@@ -221,6 +190,7 @@ class EV_Central:
             cursor.execute(consulta, (cp_id,))
             resultado = cursor.fetchone()
             cursor.close()
+            conexion.close()
             
             if resultado[0] > 0:
                 print(f"Punto de Carga {cp_id} verificado en la Base de Datos.")
@@ -230,6 +200,7 @@ class EV_Central:
                 return False
         except Exception as e:
             print(f"Error al consultar el Punto de Carga en la Base de Datos: {e}")
+            conexion.close()
             return False
 
     def existe_cp_en_bd(self, cp_id):
@@ -279,10 +250,12 @@ class EV_Central:
             
             conexion.commit()
             cursor.close()
+            conexion.close()
             print(f"CP {cp_id} registrado/actualizado en BD correctamente")
             return True
         except Exception as e:
             print(f"Error al registrar CP en BD: {e}")
+            conexion.close()
             return False
 
     def manejar_desconexion_cp(self, cp_id):
@@ -316,9 +289,11 @@ class EV_Central:
             cursor.execute(consulta, (estado, cp_id))
             conexion.commit()
             cursor.close()
+            conexion.close()
             return True
         except Exception as e:
             print(f"Error al actualizar estado CP en BD: {e}")
+            conexion.close()
             return False
 
     def obtener_cps_disponibles_bd(self): # Obtener CPs disponibles
@@ -332,9 +307,11 @@ class EV_Central:
             cursor.execute(consulta)
             resultados = cursor.fetchall()
             cursor.close()
+            conexion.close()
             return resultados
         except Exception as e:
             print(f"Error al consultar CPs disponibles en BD: {e}")
+            conexion.close()
             return []
 
     def escuchar_consultas_cps(self): # Para obtener los CPs disponibles y mandarlo al Driver
@@ -612,6 +589,15 @@ class EV_Central:
                 print(f"[{ahora}] [CENTRAL] Monitor avisa de {cp_id}. Estado actual: {self.cps[cp_id]['estado']} --> TODO OK")
             elif comando == "MON_AVERIA":
                 if self.cps[cp_id]["estado"] != EST_DESC:
+                    self.cps[cp_id]["estado"] = EST_DESC
+                    print(f"[{ahora}] [CENTRAL] {cp_id} -> AVERIA (reportado por monitor)")
+                    self.actualizar_estado_cp_en_bd(cp_id, EST_DESC)
+                    orden = {"cp_id": cp_id, "cmd": "DESCONECTADO"}
+                    self.productor.send(f"comandos_cp_{cp_id}", orden)
+                    self.productor.flush()
+                    print(f"[CENTRAL] Comando DESCONECTADO enviado al CP {cp_id}")
+            elif comando == "EN_AVERIA":
+                if self.cps[cp_id]["estado"] != EST_DESC:
                     self.cps[cp_id]["estado"] = EST_AVERIA
                     print(f"[{ahora}] [CENTRAL] {cp_id} -> AVERIA (reportado por monitor)")
                     self.actualizar_estado_cp_en_bd(cp_id, EST_AVERIA)
@@ -619,10 +605,17 @@ class EV_Central:
                     self.productor.send(f"comandos_cp_{cp_id}", orden)
                     self.productor.flush()
                     print(f"[CENTRAL] Comando AVERIA enviado al CP {cp_id}")
-
             elif comando == "MON_RECUPERADO":
                 self.cps[cp_id]["estado"] = EST_ACTIVO
                 print(f"[{ahora}] [CENTRAL] {cp_id} -> ACTIVADO (monitor recuperado)")
+                self.actualizar_estado_cp_en_bd(cp_id, EST_ACTIVO)
+                orden = {"cp_id": cp_id, "cmd": "ACTIVADO"}
+                self.productor.send(f"comandos_cp_{cp_id}", orden)
+                self.productor.flush()
+                print(f"[CENTRAL] Comando resolucion de contingenica enviado al CP {cp_id}")
+            elif comando == "EN_RECUPERADO":
+                self.cps[cp_id]["estado"] = EST_ACTIVO
+                print(f"[{ahora}] [CENTRAL] {cp_id} -> ACTIVADO (Engine recuperado)")
                 self.actualizar_estado_cp_en_bd(cp_id, EST_ACTIVO)
                 orden = {"cp_id": cp_id, "cmd": "ACTIVADO"}
                 self.productor.send(f"comandos_cp_{cp_id}", orden)
@@ -687,13 +680,9 @@ class EV_Central:
         hilo_consultas.start()
         
         print("Todos los servicios iniciados. La central está operativa.")
-        
-        try:
-            # ✅ USAR self.activo COMO CONDICIÓN
-            while self.activo:
-                time.sleep(1)
-        except KeyboardInterrupt:
-            print("\nApagando central...")
+    
+    # ELIMINAR el bucle while que bloqueaba
+    # Los hilos daemon se ejecutarán en segundo plano
 
     def mostrar_menu_central(self):
         try:
@@ -761,6 +750,7 @@ class EV_Central:
             cursor.execute(consulta)
             resultados = cursor.fetchall()
             cursor.close()
+            conexion.close()
             
             # Procesar resultados
             cps_info = [
@@ -805,6 +795,7 @@ class EV_Central:
             
         except Exception as e:
             print(f"Error al obtener información de CPs en BD: {e}")
+            conexion.close()
             return {"total_cps": 0, "cps": []}
 
     def iniciar_monitoreo_estados(self):
@@ -871,6 +862,8 @@ def main():
     print(f"Kafka: {servidor_kafka}. BD: {servidor_bd}")
 
     ev_central = EV_Central(servidor_kafka, servidor_bd)
+
+    # PRIMERO iniciar el monitoreo de estados
     ev_central.iniciar_monitoreo_estados()
     time.sleep(3)
 
@@ -912,25 +905,27 @@ def main():
         except Exception as e:
             print(f"❌ [CENTRAL] Error al hacer flush: {e}")
 
-    # Crear hilo del menú (no daemon para que no se cierre abruptamente)
-    hilo_menu = threading.Thread(target=ev_central.mostrar_menu_central)
-    hilo_menu.start()
+    # CAMBIO IMPORTANTE: Iniciar servicios ANTES del menú
+    # Crear hilo para servicios (daemon=True para que se cierre cuando el programa termine)
+    hilo_servicios = threading.Thread(target=ev_central.iniciar_servicios, daemon=True)
+    hilo_servicios.start()
 
+    # Esperar un momento para que los servicios se inicien completamente
+    time.sleep(2)
+
+    # LUEGO iniciar el menú (en el hilo principal)
     try:
-        # Iniciar servicios
-        ev_central.iniciar_servicios()
+        ev_central.mostrar_menu_central()
         
-        # Esperar a que el hilo del menú termine
-        hilo_menu.join()
+        # Cuando el menú termine, notificar desconexión
         notificar_desconexion_central()
         print("\n🔴 Cerrando central...")
-        ev_central.activo = False  # Detener todos los servicios
+        ev_central.activo = False
         
         # Dar tiempo para que los servicios se cierren correctamente
         time.sleep(2)
         
         print("✅ Central cerrada correctamente")
-        
     except KeyboardInterrupt:
         print("\n🔴 Interrupción recibida. Cerrando central...")
         
