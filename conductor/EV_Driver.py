@@ -119,6 +119,20 @@ class EvDriver:
 
                 respuesta = msg.value
 
+                if respuesta.get('tipo') == 'DESCONEXION_CENTRAL':
+                    mensaje = respuesta.get('mensaje', 'La central se ha desconectado')
+                    print(f"\n🚨 [EV_Driver] {mensaje}")
+                    print("⏳ Esperando a que la central vuelva a estar operativa...")
+                    continue
+                if respuesta.get('tipo') == 'CENTRAL_OPERATIVA':
+                    mensaje = respuesta.get('mensaje', 'La central está operativa nuevamente')
+                    print(f"\n🟢 [EV_Driver] {mensaje}")
+                    print("✅ Puede continuar con sus operaciones")
+                    # Re-verificar el driver si es necesario
+                    if not self.verificado:
+                        print("🔍 Re-verificando conductor con la central...")
+                        self.verificar_driver()
+                    continue
                 if respuesta.get('driver_id') == self.driver_id:
                     self.respuestas_pendientes -= 1
                     self.respuesta_recibida = True

@@ -75,7 +75,63 @@ class EV_Central:
 
         self.inicio = time.time()
         print(f"Central inicializada y conectada a Kafka: {servidor_kafka} y BD: {servidor_bd}")
+        self.notificar_central_operativa()
 
+    def notificar_central_operativa(self):
+        """Notifica a todos los componentes que la central está operativa nuevamente"""
+        print("🟢 [CENTRAL] Notificando a componentes que la central está operativa...")
+        
+        # Notificar a todos los CPs registrados en BD
+        cps_bd = self.obtener_todos_cps_bd()
+        for cp_id in cps_bd:
+            mensaje_operativo = {
+                "tipo": "CENTRAL_OPERATIVA",
+                "cp_id": cp_id,
+                "timestamp": time.time(),
+                "mensaje": "La central está operativa nuevamente"
+            }
+            try:
+                self.productor.send(f"comandos_cp_{cp_id}", mensaje_operativo)
+                print(f"✅ [CENTRAL] Notificación de operatividad enviada a CP {cp_id}")
+            except Exception as e:
+                print(f"❌ [CENTRAL] Error al notificar operatividad a CP {cp_id}: {e}")
+        
+        # Notificar a todos los drivers (topic general)
+        mensaje_driver = {
+            "tipo": "CENTRAL_OPERATIVA",
+            "timestamp": time.time(),
+            "mensaje": "La central está operativa nuevamente"
+        }
+        try:
+            self.productor.send('respuestas_conductor', mensaje_driver)
+            self.productor.send('respuestas_consultas_cps', mensaje_driver)
+            print("✅ [CENTRAL] Notificación de operatividad enviada a drivers")
+        except Exception as e:
+            print(f"❌ [CENTRAL] Error al notificar operatividad a drivers: {e}")
+        
+        # Esperar a que los mensajes se envíen
+        try:
+            self.productor.flush(timeout=2.0)
+            print("✅ [CENTRAL] Todas las notificaciones de operatividad enviadas")
+        except Exception as e:
+            print(f"❌ [CENTRAL] Error al hacer flush: {e}")
+
+    def obtener_todos_cps_bd(self):
+        """Obtiene todos los CPs registrados en la BD"""
+        conexion = self.obtener_conexion_bd()
+        if not conexion:
+            return []
+        
+        try:
+            cursor = conexion.cursor()
+            consulta = "SELECT id_punto_recarga FROM punto_recarga"
+            cursor.execute(consulta)
+            resultados = cursor.fetchall()
+            cursor.close()
+            return [cp[0] for cp in resultados]
+        except Exception as e:
+            print(f"Error al obtener CPs de BD: {e}")
+            return []
     def conectar_bd_inicial(self):
         """Conexión inicial a BD"""
         try:
@@ -818,16 +874,55 @@ def main():
     ev_central.iniciar_monitoreo_estados()
     time.sleep(3)
 
+    def notificar_desconexion_central():
+        """Notifica a todos los componentes que la central se está desconectando"""
+        print("\n🔴 [CENTRAL] Notificando desconexión a todos los componentes...")
+        
+        # Notificar a todos los CPs registrados
+        for cp_id in ev_central.cps.keys():
+            mensaje_desconexion = {
+                "tipo": "DESCONEXION_CENTRAL",
+                "cp_id": cp_id,
+                "timestamp": time.time(),
+                "mensaje": "La central se está desconectando. Espere a que vuelva a estar operativa."
+            }
+            try:
+                ev_central.productor.send(f"comandos_cp_{cp_id}", mensaje_desconexion)
+                print(f"✅ [CENTRAL] Notificación enviada a CP {cp_id}")
+            except Exception as e:
+                print(f"❌ [CENTRAL] Error al notificar a CP {cp_id}: {e}")
+        
+        # Notificar a todos los drivers (topic general)
+        mensaje_driver = {
+            "tipo": "DESCONEXION_CENTRAL",
+            "timestamp": time.time(),
+            "mensaje": "La central se está desconectando. Espere a que vuelva a estar operativa."
+        }
+        try:
+            ev_central.productor.send('respuestas_conductor', mensaje_driver)
+            ev_central.productor.send('respuestas_consultas_cps', mensaje_driver)
+            print("✅ [CENTRAL] Notificación enviada a drivers")
+        except Exception as e:
+            print(f"❌ [CENTRAL] Error al notificar a drivers: {e}")
+        
+        # Esperar a que los mensajes se envíen
+        try:
+            ev_central.productor.flush(timeout=2.0)
+            print("✅ [CENTRAL] Todos los mensajes de desconexión enviados")
+        except Exception as e:
+            print(f"❌ [CENTRAL] Error al hacer flush: {e}")
+
     # Crear hilo del menú (no daemon para que no se cierre abruptamente)
     hilo_menu = threading.Thread(target=ev_central.mostrar_menu_central)
     hilo_menu.start()
 
-    ev_central.iniciar_servicios()
-
     try:
+        # Iniciar servicios
+        ev_central.iniciar_servicios()
+        
         # Esperar a que el hilo del menú termine
         hilo_menu.join()
-        
+        notificar_desconexion_central()
         print("\n🔴 Cerrando central...")
         ev_central.activo = False  # Detener todos los servicios
         
@@ -838,6 +933,10 @@ def main():
         
     except KeyboardInterrupt:
         print("\n🔴 Interrupción recibida. Cerrando central...")
+        
+        # Notificar desconexión antes de cerrar
+        notificar_desconexion_central()
+        
         ev_central.activo = False
         time.sleep(2)
         print("✅ Central cerrada correctamente")

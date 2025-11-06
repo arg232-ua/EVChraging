@@ -87,6 +87,8 @@ class EV_CP:
         if nuevo_estado not in ESTADOS_VALIDOS:
             print(f"[EV_CP_E] Estado ignorado (no válido): {nuevo_estado}")
             return
+        
+
 
         self.estado = nuevo_estado
         datos = {
@@ -114,6 +116,18 @@ class EV_CP:
         cmd = (msg.get("cmd") or "").upper()
         meta = msg.get("meta") or {}
 
+        if msg.get("tipo") == "DESCONEXION_CENTRAL":
+            mensaje = msg.get("mensaje", "La central se ha desconectado")
+            print(f"🚨 [EV_CP_E] {mensaje}")
+            # Puedes tomar acciones adicionales aquí, como pausar operaciones
+            return
+        if msg.get("tipo") == "CENTRAL_OPERATIVA":
+            mensaje = msg.get("mensaje", "La central está operativa nuevamente")
+            print(f"🟢 [EV_CP_E] {mensaje}")
+            # Reanudar operaciones si estaban pausadas
+            # Re-registrar el CP con la central
+            self.registrar_cp()
+            return
         if cmd == "PARAR":
             if self.cargando:
                 self.finalizar_carga(motivo="Parada por CENTRAL")

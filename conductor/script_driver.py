@@ -19,7 +19,7 @@ def lanzar_drivers(n, kafka_broker):
         time.sleep(0.5)  # Evitar solape de terminales
 
 # CONFIGURA TUS PARÁMETROS
-N_DRIVERS = 3
+N_DRIVERS = 5
 KAFKA_BROKER = "172.23.64.1:9092"
 
 lanzar_drivers(N_DRIVERS, KAFKA_BROKER)
