@@ -466,7 +466,7 @@ class EV_CP:
                 except Exception:
                     continue
 
-    #Procesa un comando recibido por socket
+    #Procesa un comando recibido por socket 
     def _process_socket_command(self, conn: socket.socket, cmd: str):
         c = (cmd or "").strip().upper()
 
