@@ -5,12 +5,14 @@ from datetime import datetime
 from kafka import KafkaProducer, KafkaConsumer
 import threading
 import socket
+import signal
 
-TOPIC_REGISTROS = "registros_cp"
+TOPIC_REGISTROS = "registros_cp" 
 TOPIC_COMANDOS  = "comandos_cp"
 TOPIC_ESTADO    = "estado_cp"
 TOPIC_CARGA_SOLICITADA = "CARGA_SOLICITADA"
 
+#Estados que puede tener un CP
 ESTADOS_VALIDOS = {"ACTIVADO", "PARADO", "AVERIA", "SUMINISTRANDO", "DESCONECTADO"}
 
 def obtener_productor(servidor_kafka):
@@ -34,6 +36,7 @@ def obtener_consumidor(topico, grupo_id, servidor_kafka, auto_offset_reset="late
 
 class EV_CP:
     def __init__(self, servidor_kafka, cp_id, ubicacion="N/A", precio_eur_kwh=0.35):
+        #Datos para la configuracion del CP
         self.servidor_kafka = servidor_kafka
         self.cp_id = cp_id
         self.ubicacion = ubicacion
@@ -43,7 +46,7 @@ class EV_CP:
 
         self.productor = None
         
-
+        #Controles de carga
         self.cargando = False
         self.driver_en_carga = None
         self.potencia_kw = 7.4
@@ -60,6 +63,7 @@ class EV_CP:
         self._stop_sock = threading.Event()
         self.fallo_local = False
 
+    #Establece la conexion con el servidor Kafka
     def conectar(self):
         self.productor = obtener_productor(self.servidor_kafka)
         for _ in range(10):
@@ -69,8 +73,8 @@ class EV_CP:
             time.sleep(0.2)
         print(f"[EV_CP_E] No fue posible conectar con Kafka en {self.servidor_kafka}")
         return False
-
-    def registrar_cp(self): #
+    #Registra el CP en el topico de registros
+    def registrar_cp(self):
         datos = {
             "tipo": "REGISTRO_CP",
             "ts": datetime.utcnow().isoformat(),
@@ -83,13 +87,12 @@ class EV_CP:
         self.productor.flush()
         print(f"[EV_CP_E] Registrado CP '{self.cp_id}' en tópico '{TOPIC_REGISTROS}'.")
 
+    #Publica el estado actual del CP en el topico de estado y lo sincroniza con la central
     def enviar_estado(self, nuevo_estado: str, motivo: str = "", fin=False):
         if nuevo_estado not in ESTADOS_VALIDOS:
             print(f"[EV_CP_E] Estado ignorado (no válido): {nuevo_estado}")
             return
         
-
-
         self.estado = nuevo_estado
         datos = {
             "ts": datetime.utcnow().isoformat(),
@@ -112,20 +115,19 @@ class EV_CP:
         self.productor.flush()
         print(f"[EV_CP_E] Estado publicado -> {self.cp_id}: {self.estado} ({motivo})")
 
+    #Processa los comandos recibidos desde la central
     def _handle_command(self, msg: dict):
         cmd = (msg.get("cmd") or "").upper()
         meta = msg.get("meta") or {}
 
         if msg.get("tipo") == "DESCONEXION_CENTRAL":
             mensaje = msg.get("mensaje", "La central se ha desconectado")
-            print(f"🚨 [EV_CP_E] {mensaje}")
-            # Puedes tomar acciones adicionales aquí, como pausar operaciones
+            print(f"[EV_CP_E] {mensaje}")
             return
         if msg.get("tipo") == "CENTRAL_OPERATIVA":
             mensaje = msg.get("mensaje", "La central está operativa nuevamente")
-            print(f"🟢 [EV_CP_E] {mensaje}")
-            # Reanudar operaciones si estaban pausadas
-            # Re-registrar el CP con la central
+            print(f"[EV_CP_E] {mensaje}")
+
             self.registrar_cp()
             return
         if cmd == "PARAR":
@@ -143,6 +145,12 @@ class EV_CP:
                 self.finalizar_carga(motivo="Avería detectada; sesión abortada")
             self.estado = "AVERIA"
             self.enviar_estado("AVERIA", motivo="Central marca AVERIA")
+
+        elif cmd == "DESCONECTADO":
+            if self.cargando:
+                self.finalizar_carga(motivo="Avería detectada en Monitor; sesión abortada")
+            self.estado = "DESCONECTADO"
+            self.enviar_estado("DESCONECTADO", motivo="Central marca DESCONECTADO")
 
         elif cmd == "ACTIVADO":
             self.estado = "ACTIVADO" 
@@ -166,12 +174,13 @@ class EV_CP:
         else:
             print(f"[EV_CP_E] Comando no reconocido (ignorado): {cmd}")
 
+    #Escucha los comandos enviados desde la central
     def escuchar_comandos(self):
         try:
             topic_especifico = f"comandos_cp_{self.cp_id}"
             consumidor = obtener_consumidor(
                 topico=topic_especifico,
-                grupo_id=f"cp_{self.cp_id}_comandos",  # Grupo específico para este topic
+                grupo_id=f"cp_{self.cp_id}_comandos",
                 servidor_kafka=self.servidor_kafka,
                 auto_offset_reset="latest"
             )
@@ -179,7 +188,6 @@ class EV_CP:
             
             for record in consumidor:
                 msg = record.value
-                # ✅ YA NO NECESITAS FILTRAR POR KEY - todos los mensajes son para este CP
                 print(f"[EV_CP_E] Comando recibido: {msg}")
                 self._handle_command(msg)
                     
@@ -188,6 +196,7 @@ class EV_CP:
             import traceback
             traceback.print_exc()
 
+    #Simula el proceso de carga
     def _bucle_carga(self):
         try:
             while not self._stop_carga.is_set():
@@ -199,12 +208,11 @@ class EV_CP:
         except Exception as e:
             print(f"[EV_CP_E] Error en _bucle_carga: {e}")
 
+    #Inicia el proceso de carga
     def iniciar_carga(self, driver_id: str, potencia_kw: float = None):
         with self._lock_carga:
-            # Bloquear inicio si el CP está en un estado que impide suministrar
             if self.estado in ("PARADO", "AVERIA", "DESCONECTADO"):
                 print(f"[EV_CP_E] Inicio de carga BLOQUEADO: estado actual={self.estado}")
-                # Notificamos a CENTRAL que hubo un intento local bloqueado
                 try:
                     self.enviar_estado(self.estado, motivo="Intento local de iniciar suministro bloqueado")
                 except Exception:
@@ -214,7 +222,6 @@ class EV_CP:
                 print("[EV_CP_E] Ya hay una carga en curso; ignorando INICIAR_CARGA.")
                 return
 
-            # Si no se proporciona driver_id, usamos un identificador sintético del poste
             if not driver_id:
                 driver_id = f"POSTE_{self.cp_id}"
 
@@ -230,6 +237,7 @@ class EV_CP:
         self._hilo_carga = threading.Thread(target=self._bucle_carga, daemon=True)
         self._hilo_carga.start()
 
+    #Termina el proceso de carga
     def finalizar_carga(self, motivo: str = "Fin de carga"):
         with self._lock_carga:
             if not self.cargando:
@@ -245,20 +253,17 @@ class EV_CP:
             self.cargando = False
             self.driver_en_carga = None
         self.enviar_estado("ACTIVADO", motivo="Libre tras finalizar carga")
-
+    #Inicia el servidor socket para que los monitores puedan conectarse
     def iniciar_servidor_socket(self, puerto: int):
         self.puerto_socket = int(puerto)
         self._stop_sock.clear()
         self._sock_thread = threading.Thread(target=self._loop_socket, daemon=True)
         self._sock_thread.start()
         print(f"[EV_CP_E] Socket de monitorización escuchando en 0.0.0.0:{self.puerto_socket}")
-
+    
+    #Permite al CP solicitar una recarga localmente a la central
     def solicitar_recarga_local(self, driver_id, potencia_kw):
-        """Enviar una solicitud de recarga a CENTRAL (simula que el propio poste la pide).
 
-        El formato es compatible con el que envía `EvDriver`:
-        { 'driver_id', 'cp_id', 'type': 'SOLICITAR_RECARGA', 'timestamp' }
-        """
         if not self.productor:
             print("[EV_CP_E] Productor Kafka no disponible. No se puede solicitar recarga.")
             return False
@@ -269,7 +274,6 @@ class EV_CP:
             'type': 'SOLICITAR_RECARGA',
             'timestamp': time.time()
         }
-        # Incluir driver_id solo si se proporciona (no obligatorio para solicitud desde el poste)
         if driver_id:
             msg['driver_id'] = driver_id
         if potencia_kw is not None:
@@ -287,15 +291,14 @@ class EV_CP:
             print(f"[EV_CP_E] Error al enviar solicitud de recarga local: {e}")
             return False
 
+    #Desconecta el CP de la central y Kafka
     def desconectar_cp(self):
         print(f"[EV_CP_E] Iniciando desconexión del CP {self.cp_id}...")
         
-        # 1. Finalizar carga si está en curso
         if self.cargando:
             print("[EV_CP_E] Finalizando carga activa antes de desconectar...")
             self.finalizar_carga(motivo="Desconexión del CP")
         
-        # 2. Enviar mensaje de desconexión a la central
         datos_desconexion = {
             "tipo": "DESCONEXION_CP",
             "ts": datetime.utcnow().isoformat(),
@@ -312,14 +315,11 @@ class EV_CP:
         except Exception as e:
             print(f"[EV_CP_E] Error al enviar mensaje de desconexión: {e}")
         
-        # 3. Actualizar estado local
         self.estado = "DESCONECTADO"
         self.enchufado = False
         
-        # 4. Cerrar conexiones
         self.detener_servidor_socket()
         
-        # 5. Cerrar productor Kafka
         try:
             if self.productor:
                 self.productor.flush(timeout=2.0)
@@ -329,15 +329,17 @@ class EV_CP:
             print(f"[EV_CP_E] Error al cerrar productor Kafka: {e}")
         
         print(f"[EV_CP_E] CP {self.cp_id} completamente desconectado")
+
+    
     def central_disponible(self):
         try:
-            # Enviamos una comprobación a un topic de prueba (puede ser el mismo de estado)
             self.productor.partitions_for(TOPIC_ESTADO)
             return True
         except Exception:
             return False
 
 
+    #Menu CP
     def mostrar_menu_local(self):
         try:
             while True:
@@ -356,10 +358,8 @@ class EV_CP:
                 opcion = input("Seleccione una opción (1-7): ").strip()
 
                 if opcion == '1':
-                    # No pedimos driver_id aquí: la solicitud se hace desde el poste al CENTRAL
                     driver_id = input("Conductor: ").strip()
                     potencia_kw = input("Potencia: ").strip()
-                    # Enviamos la solicitud sin driver_id explícito (CENTRAL decidirá la asignación)
                     self.solicitar_recarga_local(driver_id, potencia_kw)
 
                 elif opcion == '2':
@@ -400,7 +400,6 @@ class EV_CP:
                     if not self.central_disponible():
                         print("No se puede reanudar: la central no está disponible.")
                         continue
-                    # Reanudar: volver a ACTIVADO si no hay avería
                     if self.estado == 'AVERIA':
                         print("El CP está en AVERIA y no puede reanudar hasta resolver la avería.")
                     else:
@@ -432,6 +431,7 @@ class EV_CP:
         except Exception as e:
             print(f"Error en menú local: {e}")
 
+    #Bucle principal del servidor socket
     def _loop_socket(self):
         with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as srv:
             srv.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)
@@ -466,16 +466,15 @@ class EV_CP:
                 except Exception:
                     continue
 
+    #Procesa un comando recibido por socket
     def _process_socket_command(self, conn: socket.socket, cmd: str):
         c = (cmd or "").strip().upper()
 
         if c.startswith("PING"):
-            # Esperar: "PING 3" en lugar de solo "PING"
             partes = c.split()
             cp_solicitado = partes[1] if len(partes) > 1 else None
             
             if cp_solicitado and cp_solicitado != self.cp_id:
-                # No es para este CP
                 conn.sendall(b"KO\n")
                 return
                 
@@ -524,7 +523,6 @@ def main():
         hilo_cmd.start()
 
         print("[EV_CP_E] Engine listo: registrado, escuchando comandos y con socket de monitor activo. Use el menú local para acciones (Ctrl+C para salir).")
-        # Ejecutamos el menú local en el hilo principal (interfaz de consola)
         cp.mostrar_menu_local()
 
     except KeyboardInterrupt:

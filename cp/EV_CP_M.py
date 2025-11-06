@@ -36,7 +36,6 @@ def enviar_central(central_addr, texto, timeout=1.0):
     return enviar_linea(central_addr, texto, timeout=timeout)
 
 def monitorizar(engine_addr, central_addr, cp_id, intervalo=2.0):
-    """Monitoriza el estado del Engine mediante PING periódico."""
     ultimo_ok = ping_engine(engine_addr, cp_id)
     contador = 0
 
@@ -45,8 +44,12 @@ def monitorizar(engine_addr, central_addr, cp_id, intervalo=2.0):
         contador += 1
 
         if ultimo_ok and not ok:
-            print(f"[EV_CP_M] [{cp_id}] AVERÍA detectada (PING=KO) -> notificar a CENTRAL")
-            enviar_central(central_addr, f"MON_AVERIA {cp_id}")
+            if ok == 'DESCONECTADO':    
+                print(f"[EV_CP_M] [{cp_id}] AVERÍA detectada (PING=KO) -> notificar a CENTRAL")
+                enviar_central(central_addr, f"MON_AVERIA {cp_id}")
+            else:
+                print(f"[EV_CP_M] [{cp_id}] AVERÍA detectada (PING=KO) -> notificar a CENTRAL")
+                enviar_central(central_addr, f"EN_AVERIA {cp_id}")
         elif (not ultimo_ok) and ok:
             print(f"[EV_CP_M] [{cp_id}] RECUPERACIÓN detectada (PING=OK) -> notificar a CENTRAL")
             enviar_central(central_addr, f"MON_RECUPERADO {cp_id}")
@@ -59,7 +62,6 @@ def monitorizar(engine_addr, central_addr, cp_id, intervalo=2.0):
         time.sleep(intervalo)
 
 def menu_monitor(engine_addr, central_addr, cp_id):
-    """Menú para simular manualmente averías y recuperaciones."""
 
     while True:
         ok = ping_engine(engine_addr, cp_id)
@@ -69,29 +71,36 @@ def menu_monitor(engine_addr, central_addr, cp_id):
         print(f" Monitor del CP {cp_id}")
         print("="*45)
         print(f"Estado actual: {estado_simulado}")
-        print("1. Simular AVERÍA")
-        print("2. Simular RECUPERACIÓN")
-        print("3. Verificar conexión con ENGINE")
-        print("4. Salir")
+        print("1. Simular AVERÍA Engine")
+        print("2. Simular AVERÍA Monitor")
+        print("3. Simular RECUPERACIÓN Engine")
+        print("4. Simular RECUPERACIÓN Monitor")
+        print("5. Verificar conexión con ENGINE")
+        print("6. Salir")
         print("="*45)
 
-        opcion = input("Seleccione una opción (1-4): ").strip()
+        opcion = input("Seleccione una opción (1-6): ").strip()
 
         if opcion == "1":
-            enviar_central(central_addr, f"MON_AVERIA {cp_id}")
-            print(f"[EV_CP_M] Simulación de AVERÍA enviada a CENTRAL.")
+            enviar_central(central_addr, f"EN_AVERIA {cp_id}")
+            print(f"[EV_CP_M] Simulación de AVERÍA de Engine enviada a CENTRAL.")
             estado_simulado = "AVERÍA"
-
         elif opcion == "2":
-            enviar_central(central_addr, f"MON_RECUPERADO {cp_id}")
-            print(f"[EV_CP_M] Simulación de RECUPERACIÓN enviada a CENTRAL.")
+            enviar_central(central_addr, f"MON_AVERIA {cp_id}")
+            print(f"[EV_CP_M] Simulación de AVERÍA de Monitor enviada a CENTRAL.")
             estado_simulado = "OK"
-
         elif opcion == "3":
+            enviar_central(central_addr, f"EN_RECUPERADO {cp_id}")
+            print(f"[EV_CP_M] Simulación de RECUPERACIÓN de Engine enviada a CENTRAL.")
+            estado_simulado = "AVERÍA"
+        elif opcion == "4":
+            enviar_central(central_addr, f"MON_RECUPERADO {cp_id}")
+            print(f"[EV_CP_M] Simulación de RECUPERACIÓN de Monitor enviada a CENTRAL.")
+            estado_simulado = "OK"
+        elif opcion == "5":
             ok = ping_engine(engine_addr, cp_id)
             print(f"[EV_CP_M] Verificación con Engine -> {'OK' if ok else 'KO'}")
-
-        elif opcion == "4":
+        elif opcion == "6":
             print("[EV_CP_M] Saliendo del menú...")
             break
         else:
@@ -122,7 +131,6 @@ def main():
     hilo_mon.start()
     print("[EV_CP_M] Monitorización automática activa (PING periódico).")
 
-    # Menú interactivo en hilo principal
     try:
         menu_monitor(engine_addr, central_addr, cp_id)
     except KeyboardInterrupt:
