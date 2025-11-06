@@ -6,18 +6,12 @@ services:
     ports:
       - 9092:9092
       - 29092:29092
- 
-
     environment:
       KAFKA_BROKER_ID: 1
-      # Definimos los protocolos de los listeners
       KAFKA_LISTENER_SECURITY_PROTOCOL_MAP: PLAINTEXT:PLAINTEXT,PLAINTEXT_INTERNAL:PLAINTEXT,CONTROLLER:PLAINTEXT
 
-      # Muy importante -> sustituir <IP_HOST> por la IP real de la máquina
-      # Ejemplo: PLAINTEXT://10.81.4.44:9092
       KAFKA_ADVERTISED_LISTENERS: PLAINTEXT://172.23.64.1:9092,PLAINTEXT_INTERNAL://broker:29092
 
-      # Listeners locales e internos
       KAFKA_LISTENERS: PLAINTEXT://0.0.0.0:9092,PLAINTEXT_INTERNAL://broker:29092,CONTROLLER://broker:29093
 
       KAFKA_INTER_BROKER_LISTENER_NAME: PLAINTEXT_INTERNAL

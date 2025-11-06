@@ -67,7 +67,7 @@ class EV_Central:
         
 
         self._lock = threading.Lock()
-        self._lock_bd = threading.Lock()  # Lock específico para operaciones BD
+        self._lock_bd = threading.Lock()
         self.driver_por_cp = {}
         self.cp_por_driver = {}
 
@@ -78,10 +78,8 @@ class EV_Central:
         self.notificar_central_operativa()
 
     def notificar_central_operativa(self):
-        """Notifica a todos los componentes que la central está operativa nuevamente"""
-        print("🟢 [CENTRAL] Notificando a componentes que la central está operativa...")
+        print("[CENTRAL] Notificando a componentes que la central está operativa...")
         
-        # Notificar a todos los CPs registrados en BD
         cps_bd = self.obtener_todos_cps_bd()
         for cp_id in cps_bd:
             mensaje_operativo = {
@@ -92,11 +90,10 @@ class EV_Central:
             }
             try:
                 self.productor.send(f"comandos_cp_{cp_id}", mensaje_operativo)
-                print(f"✅ [CENTRAL] Notificación de operatividad enviada a CP {cp_id}")
+                print(f"[CENTRAL] Notificación de operatividad enviada a CP {cp_id}")
             except Exception as e:
-                print(f"❌ [CENTRAL] Error al notificar operatividad a CP {cp_id}: {e}")
-        
-        # Notificar a todos los drivers (topic general)
+                print(f"[CENTRAL] Error al notificar operatividad a CP {cp_id}: {e}")
+
         mensaje_driver = {
             "tipo": "CENTRAL_OPERATIVA",
             "timestamp": time.time(),
@@ -105,19 +102,17 @@ class EV_Central:
         try:
             self.productor.send('respuestas_conductor', mensaje_driver)
             self.productor.send('respuestas_consultas_cps', mensaje_driver)
-            print("✅ [CENTRAL] Notificación de operatividad enviada a drivers")
+            print("[CENTRAL] Notificación de operatividad enviada a drivers")
         except Exception as e:
-            print(f"❌ [CENTRAL] Error al notificar operatividad a drivers: {e}")
-        
-        # Esperar a que los mensajes se envíen
+            print(f"[CENTRAL] Error al notificar operatividad a drivers: {e}")
+
         try:
             self.productor.flush(timeout=2.0)
-            print("✅ [CENTRAL] Todas las notificaciones de operatividad enviadas")
+            print("[CENTRAL] Todas las notificaciones de operatividad enviadas")
         except Exception as e:
-            print(f"❌ [CENTRAL] Error al hacer flush: {e}")
+            print(f"[CENTRAL] Error al hacer flush: {e}")
 
     def obtener_todos_cps_bd(self):
-        """Obtiene todos los CPs registrados en la BD"""
         conexion = self.obtener_conexion_bd()
         if not conexion:
             return []
@@ -133,7 +128,6 @@ class EV_Central:
             print(f"Error al obtener CPs de BD: {e}")
             return []
     def conectar_bd_inicial(self):
-        """Conexión inicial a BD"""
         try:
             self.conexion_bd = conectar_bd(self.servidor_bd)
             return self.conexion_bd is not None
@@ -142,14 +136,11 @@ class EV_Central:
             return False
 
     def obtener_conexion_bd(self):
-        """Obtiene una conexión válida a BD, reconectando si es necesario"""
         with self._lock_bd:
             try:
-                # Verificar si la conexión existe y está viva
                 if self.conexion_bd and self.conexion_bd.is_connected():
                     return self.conexion_bd
                 else:
-                    # Reconectar si no está conectada
                     print("Reconectando a BD...")
                     self.conexion_bd = conectar_bd(self.servidor_bd)
                     return self.conexion_bd
@@ -172,14 +163,13 @@ class EV_Central:
                 resultado = cursor.fetchall()
                 cursor.close()
                 return resultado
-            else:  # inserción/actualización
+            else:
                 conexion.commit()
                 cursor.close()
                 return True
                 
         except mysql.connector.Error as e:
             print(f"Error en {operacion} BD: {e}")
-            # Intentar reconectar en caso de error
             try:
                 self.conexion_bd = conectar_bd(self.servidor_bd)
             except:
@@ -251,7 +241,6 @@ class EV_Central:
             return False
 
     def registrar_cp_en_bd(self, cp_id, ubicacion, precio):
-        """Registra un nuevo CP en la base de datos"""
         conexion = self.obtener_conexion_bd()
         if not conexion:
             print("No hay conexión a la BD para registrar CP")
@@ -260,7 +249,6 @@ class EV_Central:
         try:
             cursor = conexion.cursor()
             
-            # Verificar si ya existe
             if self.existe_cp_en_bd(cp_id):
                 print(f"CP {cp_id} ya existe en BD, actualizando información...")
                 consulta = """
@@ -290,18 +278,15 @@ class EV_Central:
         
         with self._lock:
             if cp_id in self.cps:
-                # Actualizar estado local
                 self.cps[cp_id]["estado"] = EST_DESC
                 self.cps[cp_id]["ultima_actualizacion"] = time.time()
                 
-                # Limpiar asignaciones si estaba en uso
                 if cp_id in self.driver_por_cp:
                     driver_id = self.driver_por_cp[cp_id]
                     self.cp_por_driver.pop(driver_id, None)
                     self.driver_por_cp.pop(cp_id, None)
                     print(f"[CENTRAL] Limpiadas asignaciones del CP {cp_id} (driver: {driver_id})")
         
-        # Actualizar base de datos
         self.actualizar_estado_cp_en_bd(cp_id, EST_DESC)
         print(f"[CENTRAL] CP {cp_id} marcado como DESCONECTADO")
 
@@ -321,7 +306,7 @@ class EV_Central:
             print(f"Error al actualizar estado CP en BD: {e}")
             return False
 
-    def obtener_cps_disponibles_bd(self): # Obtener CPs disponibles
+    def obtener_cps_disponibles_bd(self):
         conexion = self.obtener_conexion_bd()
         if not conexion:
             return []
@@ -337,7 +322,7 @@ class EV_Central:
             print(f"Error al consultar CPs disponibles en BD: {e}")
             return []
 
-    def escuchar_consultas_cps(self): # Para obtener los CPs disponibles y mandarlo al Driver
+    def escuchar_consultas_cps(self):
         consumidor = obtener_consumidor('consultas_cps', 'central-consultas', self.servidor_kafka)
         print("[CENTRAL] Escuchando consultas de CPs disponibles...")
 
@@ -349,10 +334,8 @@ class EV_Central:
                 consulta_id = consulta.get('consulta_id')
                 print(f"[CENTRAL] Driver {driver_id} solicita CPs disponibles")
                 
-                # Obtener CPs disponibles de la BD
                 cps_disponibles = self.obtener_cps_disponibles_bd()
                 
-                # Preparar respuesta
                 respuesta = {
                     'type': 'RESPUESTA_CPS_DISPONIBLES',
                     'driver_id': driver_id,
@@ -368,7 +351,6 @@ class EV_Central:
                     'timestamp': time.time()
                 }
                 
-                # Enviar respuesta
                 self.productor.send('respuestas_consultas_cps', respuesta)
                 self.productor.flush()
                 print(f"[CENTRAL] Enviados {len(cps_disponibles)} CPs disponibles a driver {driver_id}")
@@ -423,7 +405,6 @@ class EV_Central:
                 with self._lock:
                     estado_cp = self.cps.get(cp_id, {}).get("estado", EST_DESC)
                     print(f"[CENTRAL] Estado del CP {cp_id}: {estado_cp}")
-
                 if estado_cp == EST_ACTIVO:
                     cmd = {
                         "cp_id": cp_id,
@@ -432,12 +413,10 @@ class EV_Central:
                     }
                     self.productor.send(TOPIC_COMANDOS, cmd)
                     self.productor.flush()
-
                     with self._lock:
                         self.cps.setdefault(cp_id, {})["estado"] = EST_SUM
                         self.driver_por_cp[cp_id] = driver_id
                         self.cp_por_driver[driver_id] = cp_id
-
                     resp = {
                         "driver_id": driver_id,
                         "cp_id": cp_id,
@@ -447,8 +426,7 @@ class EV_Central:
                     time.sleep(3)
                     self.productor.send(TOPIC_RESP_DRIVER, resp)
                     self.productor.flush()
-                    print(f"[CENTRAL] Recarga AUTORIZADA en {cp_id} para driver {driver_id}")
-                
+                    print(f"[CENTRAL] Recarga AUTORIZADA en {cp_id} para driver {driver_id}")               
                 else:
                     resp = {
                         "driver_id": driver_id,
@@ -459,7 +437,6 @@ class EV_Central:
                     self.productor.send(TOPIC_RESP_DRIVER, resp)
                     self.productor.flush()
                     print(f"[CENTRAL] Recarga DENEGADA en {cp_id} para driver {driver_id} (estado: {estado_cp})")
-
                 print(f"Mensaje enviado al conductor: {driver_id}.")
 
     def escuchar_estados_cp(self):
@@ -514,10 +491,8 @@ class EV_Central:
     def escuchar_registros_cp(self):
         consumidor = obtener_consumidor(TOPIC_REGISTROS, 'central-registros', self.servidor_kafka)
         print("[CENTRAL] Escuchando registros de CPs...")
-
         for msg in consumidor:
-            registro = msg.value
-            
+            registro = msg.value         
             if registro.get('tipo') == 'REGISTRO_CP':
                 cp_id = registro.get('cp_id')
                 ubicacion = registro.get('ubicacion', 'N/A')
@@ -547,33 +522,31 @@ class EV_Central:
                             "ultima_actualizacion": time.time()
                         })
                         print(f"[CENTRAL] CP {cp_id} actualizado")
-                
                 self.actualizar_estado_cp_en_bd(cp_id, estado_inicial)
                 
     def enviar_comando(self, cp_id, cmd):
         try:
-            print(f"🔧 [CENTRAL] Enviando comando '{cmd}' a '{cp_id}'")
+            print(f"[CENTRAL] Enviando comando '{cmd}' a '{cp_id}'")
             
             if cp_id == "ALL":
                 cps_list = list(self.cps.keys())
                 if not cps_list:
-                    print("❌ [CENTRAL] No hay CPs registrados para enviar comando")
+                    print("[CENTRAL] No hay CPs registrados para enviar comando")
                     return
                     
-                print(f"🔧 [CENTRAL] Enviando a {len(cps_list)} CPs: {cps_list}")
+                print(f"[CENTRAL] Enviando a {len(cps_list)} CPs: {cps_list}")
                 for id_cp in cps_list:
                     orden = {
                         "cp_id": id_cp, 
                         "cmd": cmd,
                         "timestamp": time.time()
                     }
-                    # ENVIAR AL TOPIC ESPECÍFICO DEL CP
                     topic_destino = f"comandos_cp_{id_cp}"
                     self.productor.send(topic_destino, value=orden)
-                    print(f"✅ [CENTRAL] Comando {cmd} enviado a CP {id_cp} en topic {topic_destino}")
+                    print(f"[CENTRAL] Comando {cmd} enviado a CP {id_cp} en topic {topic_destino}")
             else:
                 if cp_id not in self.cps:
-                    print(f"❌ [CENTRAL] CP {cp_id} no encontrado. CPs registrados: {list(self.cps.keys())}")
+                    print(f"[CENTRAL] CP {cp_id} no encontrado. CPs registrados: {list(self.cps.keys())}")
                     return
                     
                 orden = {
@@ -581,16 +554,15 @@ class EV_Central:
                     "cmd": cmd,
                     "timestamp": time.time()
                 }
-                # ENVIAR AL TOPIC ESPECÍFICO DEL CP
                 topic_destino = f"comandos_cp_{cp_id}"
                 self.productor.send(topic_destino, value=orden)
-                print(f"✅ [CENTRAL] Comando {cmd} enviado a CP {cp_id} en topic {topic_destino}")
+                print(f"[CENTRAL] Comando {cmd} enviado a CP {cp_id} en topic {topic_destino}")
             
             self.productor.flush()
-            print(f"🔧 [CENTRAL] Flush completado para comando {cmd}")
+            print(f"[CENTRAL] Flush completado para comando {cmd}")
             
         except Exception as e:
-            print(f"❌ [CENTRAL] ERROR al enviar comando: {e}")
+            print(f"[CENTRAL] ERROR al enviar comando: {e}")
             import traceback
             traceback.print_exc()
 
@@ -670,7 +642,6 @@ class EV_Central:
     def iniciar_servicios(self):
         print("Iniciando todos los servicios de la central...")
         
-        # Crear hilos para cada tipo de mensaje
         hilo_verificaciones = threading.Thread(target=self.escuchar_peticiones_verificacion, daemon=True)
         hilo_cargas = threading.Thread(target=self.escuchar_peticiones_recarga, daemon=True)
         hilo_registros = threading.Thread(target=self.escuchar_registros_cp, daemon=True)
@@ -678,7 +649,6 @@ class EV_Central:
         hilo_monitores = threading.Thread(target=self.servidor_monitores, daemon=True)
         hilo_consultas = threading.Thread(target=self.escuchar_consultas_cps, daemon=True)
         
-        # Iniciar todos los hilos
         hilo_verificaciones.start()
         hilo_cargas.start()
         hilo_registros.start()
@@ -689,7 +659,6 @@ class EV_Central:
         print("Todos los servicios iniciados. La central está operativa.")
         
         try:
-            # ✅ USAR self.activo COMO CONDICIÓN
             while self.activo:
                 time.sleep(1)
         except KeyboardInterrupt:
@@ -712,33 +681,33 @@ class EV_Central:
 
                 if opcion == '1':
                     cp_id = input("Ingrese el ID del CP a PARAR: ").strip()
-                    if cp_id in self.cps:  # ✅ Verificar que existe
+                    if cp_id in self.cps:
                         self.enviar_comando(cp_id, "PARAR")
                     else:
-                        print(f"❌ CP {cp_id} no encontrado en central")
+                        print(f"CP {cp_id} no encontrado en central")
 
                 elif opcion == '2':
-                    if self.cps:  # ✅ Verificar que hay CPs
+                    if self.cps:
                         self.enviar_comando("ALL", "PARAR")
                     else:
-                        print("❌ No hay CPs registrados en la central")
+                        print("No hay CPs registrados en la central")
 
                 elif opcion == '3':
                     cp_id = input("Ingrese el ID del CP a REANUDAR: ").strip()
-                    if cp_id in self.cps:  # ✅ Verificar que existe
+                    if cp_id in self.cps:
                         self.enviar_comando(cp_id, "REANUDAR")
                     else:
-                        print(f"❌ CP {cp_id} no encontrado en central")
+                        print(f"CP {cp_id} no encontrado en central")
 
                 elif opcion == '4':
-                    if self.cps:  # ✅ Verificar que hay CPs
+                    if self.cps:
                         self.enviar_comando("ALL", "REANUDAR")
                     else:
-                        print("❌ No hay CPs registrados en la central")
+                        print("No hay CPs registrados en la central")
 
                 elif opcion == '5':
                     print("Saliendo del menú de la central...")
-                    self.activo = False  # detener monitoreo
+                    self.activo = False
                     break
 
                 else:
@@ -750,7 +719,6 @@ class EV_Central:
             print(f"Error en el menú de la central: {e}")
 
     def ver_cps_bd(self):
-        """Obtiene información completa de todos los CPs con colores"""
         conexion = self.obtener_conexion_bd()
         if not conexion:
             return {"total_cps": 0, "cps": []}
@@ -762,7 +730,6 @@ class EV_Central:
             resultados = cursor.fetchall()
             cursor.close()
             
-            # Procesar resultados
             cps_info = [
                 {"id": cp[0], "estado": cp[1]}
                 for cp in resultados
@@ -773,7 +740,6 @@ class EV_Central:
                 "cps": cps_info
             }
             
-            # Usar los mismos colores definidos en iniciar_monitoreo_estados
             COLOR_RESET = "\033[0m"
             COLOR_VERDE = "\033[92m"
             COLOR_NARANJA = "\033[93m"
@@ -782,12 +748,10 @@ class EV_Central:
             
             print(f"[BD] Encontrados {info_completa['total_cps']} CPs en la base de datos")
             
-            # Imprimir cada CP con su color correspondiente
             for cp in cps_info:
                 estado = cp["estado"]
-                color = COLOR_RESET  # Por defecto
+                color = COLOR_RESET
                 
-                # Asignar color según el estado (igual que en iniciar_monitoreo_estados)
                 if estado == "ACTIVADO":
                     color = COLOR_VERDE
                 elif estado == "PARADO":
@@ -820,7 +784,6 @@ class EV_Central:
                 print("          ESTADOS ACTUALES DE CPs")
                 print("="*50)
                 
-                # Llamar a la función que muestra CPs de BD con colores
                 self.ver_cps_bd()
                 time.sleep(2)
                 print("-" * 50)
@@ -828,7 +791,7 @@ class EV_Central:
                 print("-" * 50)
 
                 if not self.cps:
-                    print("❌ No hay CPs conectados con la central")
+                    print("No hay CPs conectados con la central")
                 else:
                     for cp_id, datos in self.cps.items():
                         estado = datos.get("estado", "N/A")
