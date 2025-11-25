@@ -28,6 +28,7 @@ def lanzar_cps(n, kafka_broker, central_host, precio_base, port_base):
 
         # Comando para EV_CP_M en nueva terminal
         monitor_cmd = f"start cmd /k python EV_CP_M.py {central_host}:{puerto_engine} {central_host}:7001 {cp_id}"
+                                                        # cambiar
         subprocess.Popen(monitor_cmd, shell=True)
         print(f"Lanzado EV_CP_M CP {cp_id}")
         time.sleep(0.5)
@@ -35,7 +36,7 @@ def lanzar_cps(n, kafka_broker, central_host, precio_base, port_base):
 def main():
     if len(sys.argv) != 4:
         print("ERROR: Argumentos incorrectos")
-        print("Uso: python script_cp.py <IP:puerto_broker> <IP:Central> <Número_de_CPs_a_inicializar>")
+        print("Uso: python script_cp.py <IP:puerto_broker> <IP_Central> <Número_de_CPs_a_inicializar>")
         # Ejemplo: python script_cp.py <IP_del_PC_de_los_CPS:9092> <IP_deL_PC_de_la_central> <10>
         sys.exit(1)
 
