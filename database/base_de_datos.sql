@@ -1,5 +1,5 @@
 -- --------------------------------------------------------
--- Host:                         127.0.0.1
+-- Host:                         localhost
 -- Versión del servidor:         10.4.32-MariaDB - mariadb.org binary distribution
 -- SO del servidor:              Win64
 -- HeidiSQL Versión:             12.6.0.6765
@@ -42,7 +42,7 @@ CREATE TABLE IF NOT EXISTS `conductor` (
   `dni_conductor` varchar(10) NOT NULL
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_general_ci;
 
--- Volcando datos para la tabla evcharging.conductor: ~15 rows (aproximadamente)
+-- Volcando datos para la tabla evcharging.conductor: ~16 rows (aproximadamente)
 DELETE FROM `conductor`;
 INSERT INTO `conductor` (`id_conductor`, `nombre`, `apellidos`, `email_conductor`, `telefono_conductor`, `dni_conductor`) VALUES
 	('AAA1', 'Alejandro', 'Sánchez Martínez', 'alejandrosd2526@gmail.com', '601257198', '45983261Z');
@@ -74,6 +74,8 @@ INSERT INTO `conductor` (`id_conductor`, `nombre`, `apellidos`, `email_conductor
 	('AAA14', 'Aarón', 'Sáncez Pérez', 'aasp02@gmail.com', '657840932', '23905643L');
 INSERT INTO `conductor` (`id_conductor`, `nombre`, `apellidos`, `email_conductor`, `telefono_conductor`, `dni_conductor`) VALUES
 	('AAA15', 'David', 'Muñoz Rivera', 'maesomuñrvera@gmail.com', '698234509', '12984587F');
+INSERT INTO `conductor` (`id_conductor`, `nombre`, `apellidos`, `email_conductor`, `telefono_conductor`, `dni_conductor`) VALUES
+	('AAA16', 'Nuevo', 'Conductor uno', 'pruebanuevo1@gmail.com', '683495035', '12439045H');
 
 -- Volcando estructura para tabla evcharging.punto_recarga
 CREATE TABLE IF NOT EXISTS `punto_recarga` (
