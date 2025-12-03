@@ -80,3 +80,43 @@ centralSD.post("/usuarios",(request, response) => {
 });
 
 // 4.5
+// Modificar un usuario 
+centralSD.put("/usuarios/:id",(request, response) => { 
+    console.log('Modificar usuario'); 
+    const {id} = request.params; 
+    const {nombre,apellidos, telefono, correo, dni} = request.body; 
+    const sql = `UPDATE conductor SET nombre=?, apellidos=?, telefono_conductor=?, email_conductor=?, dni_conductor=? WHERE id_conductor=?`; 
+    
+    connection.query(sql, [nombre, apellidos, telefono, correo, dni, id], (error, results) => { 
+        if (error) {
+            console.error('Error en la consulta:', error);
+            return response.status(500).send('Error al modificar usuario');
+        }
+        
+        if (results.affectedRows === 0) {
+            return response.status(404).send('Usuario no encontrado');
+        }
+        
+        response.send('Usuario modificado correctamente'); 
+    });  
+});
+
+// Borrar un usuario 
+centralSD.delete("/usuarios/:id", (request, response) => { 
+    console.log('Borrar usuario'); 
+    const {id} = request.params; 
+    const sql = `DELETE FROM conductor WHERE id_conductor = ?`; 
+    
+    connection.query(sql, [id], (error, results) => { 
+        if (error) {
+            console.error('Error al borrar usuario:', error);
+            return response.status(500).send('Error al borrar usuario');
+        }
+        
+        if (results.affectedRows === 0) {
+            return response.status(404).send('Usuario no encontrado');
+        }
+        
+        response.send('Usuario borrado correctamente'); 
+    });  
+});
