@@ -1,0 +1,19 @@
+{
+  "locations": [
+    {
+      "city": "Alicante",
+      "country": "ES",
+      "cp_id": "1"
+    },
+    {
+      "city": "Orihuela",
+      "country": "ES",
+      "cp_id": "2"
+    },
+    {
+      "city": "Madrid",
+      "country": "ES",
+      "cp_id": "3"
+    }
+  ]
+}

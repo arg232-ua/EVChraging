@@ -120,3 +120,50 @@ centralSD.delete("/usuarios/:id", (request, response) => {
         response.send('Usuario borrado correctamente'); 
     });  
 });
+
+// DE EV_W
+// Endpoint para recibir alertas meteorológicas de EV_W
+centralSD.post("/weather-alert", (request, response) => {
+    console.log('Alerta meteorológica recibida de EV_W');
+    const { cp_id, alert_type, temperature, timestamp } = request.body;
+    
+    // Registrar en auditoría
+    const audit_sql = `INSERT INTO auditoria (fecha_hora, ip_origen, accion, descripcion) VALUES (?, ?, ?, ?)`;
+    const descripcion = `CP ${cp_id}: Temperatura ${temperature}°C - ${alert_type === 'bajo_zero' ? 'ALERTA POR FRÍO' : 'ALERTA FINALIZADA'}`;
+    
+    connection.query(audit_sql, [timestamp, request.ip, 'weather_alert', descripcion], (error) => {
+        if (error) console.error('Error en auditoría:', error);
+    });
+
+    // Aquí implementar la lógica para:
+    // 1. Si alert_type === 'bajo_zero': enviar mensaje de parada al CP
+    // 2. Si alert_type === 'normal': restaurar operación del CP
+    
+    console.log(`Procesando alerta para CP ${cp_id}: ${temperature}°C`);
+    
+    // Simular acción (debes implementar la comunicación real con Kafka/CPs)
+    if (alert_type === 'bajo_zero') {
+        console.log(`ENVIANDO ORDEN DE PARADA A CP ${cp_id}`);
+        // Lógica para enviar mensaje a través de Kafka
+    } else {
+        console.log(`RESTAURANDO OPERACIÓN DE CP ${cp_id}`);
+        // Lógica para reanudar operación
+    }
+    
+    response.json({ 
+        status: 'success', 
+        message: `Alerta procesada para CP ${cp_id}` 
+    });
+});
+
+// Endpoint para consultar alertas activas
+centralSD.get("/weather-alerts", (request, response) => {
+    const sql = "SELECT * FROM auditoria WHERE accion = 'weather_alert' ORDER BY fecha_hora DESC LIMIT 10";
+    connection.query(sql, (error, results) => {
+        if (error) {
+            console.error('Error:', error);
+            return response.status(500).json({ error: 'Error en la base de datos' });
+        }
+        response.json(results);
+    });
+});
