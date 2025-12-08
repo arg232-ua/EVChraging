@@ -625,6 +625,59 @@ class EV_Central: # Clase Central (Principal para la práctica)
                     daemon=True
                 ).start()
 
+def escuchar_alertas_meteorologicas(self): # Escuchar alertas meteorológicas desde EV_W
+    consumidor = obtener_consumidor("alertas_meteorologicas", "central-alertas", self.servidor_kafka)
+    print("[CENTRAL] Escuchando alertas meteorológicas...")
+
+    for msg in consumidor:
+        alerta = msg.value
+        alert_type = alerta.get("alert_type")
+        cp_id = alerta.get("cp_id")
+        temperature = alerta.get("temperature")
+        
+        if not alert_type or not cp_id:
+            continue
+            
+        print(f"[CENTRAL] Alerta meteorológica recibida para CP {cp_id}: {alert_type} ({temperature}°C)")
+        
+        # Determinar la acción según el tipo de alerta
+        if alert_type == "bajo_zero":
+            # Enviar comando de parada al CP específico
+            self.enviar_comando_cp_por_alerta(cp_id, "PARAR", f"Parada por alerta meteorológica ({temperature}°C)")
+            print(f"[CENTRAL] Enviando PARADA a CP {cp_id} por temperatura bajo cero")
+        elif alert_type == "normal":
+            # Enviar comando de reanudación si estaba parado por alerta
+            with self._lock:
+                estado_actual = self.cps.get(cp_id, {}).get("estado", "")
+            
+            if estado_actual == "PARADO":
+                self.enviar_comando_cp_por_alerta(cp_id, "REANUDAR", f"Reanudación tras alerta meteorológica resuelta ({temperature}°C)")
+                print(f"[CENTRAL] Enviando REANUDACIÓN a CP {cp_id}")
+
+def enviar_comando_cp_por_alerta(self, cp_id, comando, motivo): # Enviar parada o reanudar a un CP por alerta o fin de alerta meteorologica
+    try:
+        orden = {
+            "cp_id": cp_id,
+            "cmd": comando,
+            "motivo": motivo,
+            "origen": "alerta_meteorologica",
+            "timestamp": time.time()
+        }
+        
+        # Enviar al topic específico del CP
+        topic_destino = f"comandos_cp_{cp_id}"
+        self.productor.send(topic_destino, value=orden)
+        self.productor.flush()
+        print(f"[CENTRAL] Comando {comando} enviado a CP {cp_id} por alerta meteorológica")
+        
+        # Actualizar estado en memoria
+        with self._lock:
+            if cp_id in self.cps:
+                self.cps[cp_id]["estado"] = "PARADO" if comando == "PARAR" else "ACTIVADO"
+        
+    except Exception as e:
+        print(f"[CENTRAL] ERROR al enviar comando por alerta: {e}")
+
     def iniciar_servicios(self): # Iniciar todos los servicios de la central
         print("Iniciando todos los servicios de la central...")
         
@@ -635,6 +688,7 @@ class EV_Central: # Clase Central (Principal para la práctica)
         hilo_estados = threading.Thread(target=self.escuchar_estados_cp, daemon=True) # Hilo para estados de CPs
         hilo_monitores = threading.Thread(target=self.servidor_monitores, daemon=True) # Hilo para atender monitores
         hilo_consultas = threading.Thread(target=self.escuchar_consultas_cps, daemon=True) # Hilo para consultas de CPs disponibles
+        hilo_alertas = threading.Thread(target=self.escuchar_alertas_meteorologicas, daemon=True)
         
         # Iniciar todos los hilos
         hilo_verificaciones.start()
@@ -643,6 +697,7 @@ class EV_Central: # Clase Central (Principal para la práctica)
         hilo_estados.start()
         hilo_monitores.start()
         hilo_consultas.start()
+        hilo_alertas.start()
         
         print("Todos los servicios iniciados. La central está operativa.") # Confirmación
 

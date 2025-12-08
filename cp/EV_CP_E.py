@@ -119,6 +119,8 @@ class EV_CP:
     def _handle_command(self, msg: dict):
         cmd = (msg.get("cmd") or "").upper()
         meta = msg.get("meta") or {}
+        if msg.get("motivo"):
+            mot = msg.get("motivo")
 
         if msg.get("tipo") == "DESCONEXION_CENTRAL":
             mensaje = msg.get("mensaje", "La central se ha desconectado")
@@ -132,13 +134,20 @@ class EV_CP:
             return
         if cmd == "PARAR":
             if self.cargando:
-                self.finalizar_carga(motivo="Parada por CENTRAL")
+                if mot:
+                    self.finalizar_carga(motivo=mot)
+                else:
+                    self.finalizar_carga(motivo="Parada por CENTRAL")
             self.estado = "PARADO"
             self.enviar_estado("PARADO", motivo="Central ordena PARAR")
 
         elif cmd == "REANUDAR":
-            self.estado = "ACTIVADO"
-            self.enviar_estado("ACTIVADO", motivo="Central ordena REANUDAR")
+            if mot:
+                self.estado = "ACTIVADO"
+                self.enviar_estado("ACTIVADO", motivo=mot)
+            else:
+                self.estado = "ACTIVADO"
+                self.enviar_estado("ACTIVADO", motivo="Central ordena REANUDAR")
 
         elif cmd == "AVERIA":
             if self.cargando:

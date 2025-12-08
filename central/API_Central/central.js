@@ -134,25 +134,67 @@ centralSD.post("/weather-alert", (request, response) => {
     connection.query(audit_sql, [timestamp, request.ip, 'weather_alert', descripcion], (error) => {
         if (error) console.error('Error en auditoría:', error);
     });
-
-    // Aquí implementar la lógica para:
-    // 1. Si alert_type === 'bajo_zero': enviar mensaje de parada al CP
-    // 2. Si alert_type === 'normal': restaurar operación del CP
     
     console.log(`Procesando alerta para CP ${cp_id}: ${temperature}°C`);
     
-    // Simular acción (debes implementar la comunicación real con Kafka/CPs)
-    if (alert_type === 'bajo_zero') {
-        console.log(`ENVIANDO ORDEN DE PARADA A CP ${cp_id}`);
-        // Lógica para enviar mensaje a través de Kafka
-    } else {
-        console.log(`RESTAURANDO OPERACIÓN DE CP ${cp_id}`);
-        // Lógica para reanudar operación
-    }
+    // Enviar mensaje a Kafka para que la central Python lo procese
+    const kafka = require('kafka-node');
+    const Producer = kafka.Producer;
+    const client = new kafka.KafkaClient({ kafkaHost: 'localhost:9092' }); // Ajustar según configuración
+    const producer = new Producer(client);
     
-    response.json({ 
-        status: 'success', 
-        message: `Alerta procesada para CP ${cp_id}` 
+    producer.on('ready', () => {
+        // Preparar el mensaje para la central
+        const mensajeCentral = {
+            tipo: "ALERTA_METEOROLOGICA",
+            cp_id: cp_id,
+            alert_type: alert_type,
+            temperature: temperature,
+            origen: "EV_W",
+            timestamp: timestamp || new Date().toISOString()
+        };
+        
+        // Enviar al topic que escucha la central Python
+        const payloads = [
+            {
+                topic: "alertas_meteorologicas", // Nuevo topic para alertas
+                messages: JSON.stringify(mensajeCentral),
+                partition: 0,
+                key: cp_id
+            }
+        ];
+        
+        producer.send(payloads, (error, data) => {
+            if (error) {
+                console.error(`Error al enviar alerta a Kafka:`, error);
+                response.status(500).json({ 
+                    status: 'error', 
+                    message: 'Error al procesar la alerta' 
+                });
+            } else {
+                console.log(`Alerta meteorológica para CP ${cp_id} enviada a central`);
+                
+                response.json({ 
+                    status: 'success', 
+                    message: `Alerta meteorológica procesada para CP ${cp_id}`,
+                    details: {
+                        cp_id: cp_id,
+                        temperature: temperature,
+                        alert_type: alert_type,
+                        action: alert_type === 'bajo_zero' ? 'CP será parado' : 'CP será reanudado',
+                        timestamp: timestamp || new Date().toISOString()
+                    }
+                });
+            }
+        });
+    });
+    
+    producer.on('error', (error) => {
+        console.error('Error en Kafka producer:', error);
+        response.status(500).json({ 
+            status: 'error', 
+            message: 'Error en la comunicación con Kafka' 
+        });
     });
 });
 
