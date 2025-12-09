@@ -4,6 +4,12 @@ const port = 3001;
 const mysql = require("mysql");
 const bodyParser = require("body-parser");
 const { generarCredencial } = require("./utils");
+const https = require("https");
+const fs = require("fs");
+const options = {
+    key: fs.readFileSync("key.pem"),
+    cert: fs.readFileSync("cert.pem")
+};
 
 // Middleware
 registry.use(bodyParser.json());
@@ -154,7 +160,6 @@ registry.get("/registro", (req, res) => {
 });
 
 
-// Iniciar servidor
-registry.listen(port, () => {
-    console.log(`API EV_Registry ejecutándose en puerto ${port}`);
+https.createServer(options, registry).listen(port, () => {
+    console.log(`API EV_Registry (HTTPS) ejecutándose en puerto ${port}`);
 });
