@@ -19,6 +19,39 @@
 CREATE DATABASE IF NOT EXISTS `evcharging` /*!40100 DEFAULT CHARACTER SET utf8mb4 COLLATE utf8mb4_general_ci */;
 USE `evcharging`;
 
+-- Volcando estructura para tabla evcharging.auditoria
+CREATE TABLE IF NOT EXISTS `auditoria` (
+  `id_auditoria` int(11) NOT NULL AUTO_INCREMENT,
+  `fecha_hora` datetime NOT NULL,
+  `ip_origen` varchar(45) DEFAULT NULL,
+  `accion` varchar(50) NOT NULL,
+  `descripcion` text DEFAULT NULL,
+  PRIMARY KEY (`id_auditoria`)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_general_ci;
+
+-- Volcando datos para la tabla evcharging.auditoria: ~10 rows (aproximadamente)
+DELETE FROM `auditoria`;
+INSERT INTO `auditoria` (`id_auditoria`, `fecha_hora`, `ip_origen`, `accion`, `descripcion`) VALUES
+	(1, '2025-12-11 12:38:09', '::1', 'weather_alert', 'CP 1: Temperatura -10°C - ALERTA POR FRÍO');
+INSERT INTO `auditoria` (`id_auditoria`, `fecha_hora`, `ip_origen`, `accion`, `descripcion`) VALUES
+	(2, '2025-12-11 12:39:12', '::1', 'weather_alert', 'CP 1: Temperatura 17°C - ALERTA FINALIZADA');
+INSERT INTO `auditoria` (`id_auditoria`, `fecha_hora`, `ip_origen`, `accion`, `descripcion`) VALUES
+	(3, '2025-12-11 20:25:15', 'EV_W', 'weather_alert', 'NORMALIZACIÓN: Temperatura 12.5°C en CP 1');
+INSERT INTO `auditoria` (`id_auditoria`, `fecha_hora`, `ip_origen`, `accion`, `descripcion`) VALUES
+	(4, '2025-12-11 20:27:28', 'EV_W', 'weather_alert', 'ALERTA METEOROLÓGICA: Temperatura -5°C en CP 1');
+INSERT INTO `auditoria` (`id_auditoria`, `fecha_hora`, `ip_origen`, `accion`, `descripcion`) VALUES
+	(5, '2025-12-11 20:31:07', 'EV_W', 'weather_alert', 'NORMALIZACIÓN: Temperatura 11°C en CP 1');
+INSERT INTO `auditoria` (`id_auditoria`, `fecha_hora`, `ip_origen`, `accion`, `descripcion`) VALUES
+	(6, '2025-12-11 20:39:11', NULL, 'weather_alert', 'ACTUALIZACIÓN: Nueva temperatura 15.88°C en CP 1');
+INSERT INTO `auditoria` (`id_auditoria`, `fecha_hora`, `ip_origen`, `accion`, `descripcion`) VALUES
+	(7, '2025-12-11 20:39:11', NULL, 'weather_alert', 'ACTUALIZACIÓN: Nueva temperatura 12.7°C en CP 2');
+INSERT INTO `auditoria` (`id_auditoria`, `fecha_hora`, `ip_origen`, `accion`, `descripcion`) VALUES
+	(8, '2025-12-11 20:39:11', NULL, 'weather_alert', 'ACTUALIZACIÓN: Nueva temperatura 8.53°C en CP 3');
+INSERT INTO `auditoria` (`id_auditoria`, `fecha_hora`, `ip_origen`, `accion`, `descripcion`) VALUES
+	(9, '2025-12-11 20:39:56', NULL, 'weather_alert', 'NORMALIZACIÓN: Temperatura 15.7°C en CP 1');
+INSERT INTO `auditoria` (`id_auditoria`, `fecha_hora`, `ip_origen`, `accion`, `descripcion`) VALUES
+	(10, '2025-12-11 20:42:48', NULL, 'weather_alert', 'NORMALIZACIÓN: Temperatura 15.7°C en CP 1');
+
 -- Volcando estructura para tabla evcharging.central
 CREATE TABLE IF NOT EXISTS `central` (
   `id_central` varchar(10) NOT NULL,
@@ -45,7 +78,7 @@ CREATE TABLE IF NOT EXISTS `conductor` (
 -- Volcando datos para la tabla evcharging.conductor: ~16 rows (aproximadamente)
 DELETE FROM `conductor`;
 INSERT INTO `conductor` (`id_conductor`, `nombre`, `apellidos`, `email_conductor`, `telefono_conductor`, `dni_conductor`) VALUES
-	('AAA1', 'Alejandro', 'Sánchez Martínez', 'alejandrosd2526@gmail.com', '601257198', '45983261Z');
+	('AAA1', 'Cambio2', 'uno', 'pruebaupdate1@gmail.com', '123456789', '12345678U');
 INSERT INTO `conductor` (`id_conductor`, `nombre`, `apellidos`, `email_conductor`, `telefono_conductor`, `dni_conductor`) VALUES
 	('AAA2', 'Pedro', 'Rizo Valero', 'pedrosd2526@gmail.com', '642982651', '21381363L');
 INSERT INTO `conductor` (`id_conductor`, `nombre`, `apellidos`, `email_conductor`, `telefono_conductor`, `dni_conductor`) VALUES
@@ -75,7 +108,7 @@ INSERT INTO `conductor` (`id_conductor`, `nombre`, `apellidos`, `email_conductor
 INSERT INTO `conductor` (`id_conductor`, `nombre`, `apellidos`, `email_conductor`, `telefono_conductor`, `dni_conductor`) VALUES
 	('AAA15', 'David', 'Muñoz Rivera', 'maesomuñrvera@gmail.com', '698234509', '12984587F');
 INSERT INTO `conductor` (`id_conductor`, `nombre`, `apellidos`, `email_conductor`, `telefono_conductor`, `dni_conductor`) VALUES
-	('AAA16', 'Nuevo', 'Conductor uno', 'pruebanuevo1@gmail.com', '683495035', '12439045H');
+	('AAA16', 'Cambio2', 'uno', 'pruebaupdate1@gmail.com', '123456789', '12345678U');
 
 -- Volcando estructura para tabla evcharging.punto_recarga
 CREATE TABLE IF NOT EXISTS `punto_recarga` (
@@ -84,6 +117,8 @@ CREATE TABLE IF NOT EXISTS `punto_recarga` (
   `ubicacion_punto_recarga` varchar(255) NOT NULL,
   `precio` decimal(8,3) NOT NULL,
   `estado` varchar(20) DEFAULT NULL,
+  `temperatura` decimal(4,1) DEFAULT 20.0,
+  `ultima_actualizacion` timestamp NOT NULL DEFAULT current_timestamp() ON UPDATE current_timestamp(),
   PRIMARY KEY (`id_punto_recarga`),
   KEY `fk_punto_recarga_central` (`id_central`),
   CONSTRAINT `fk_punto_recarga_central` FOREIGN KEY (`id_central`) REFERENCES `central` (`id_central`) ON DELETE CASCADE
@@ -91,12 +126,32 @@ CREATE TABLE IF NOT EXISTS `punto_recarga` (
 
 -- Volcando datos para la tabla evcharging.punto_recarga: ~3 rows (aproximadamente)
 DELETE FROM `punto_recarga`;
-INSERT INTO `punto_recarga` (`id_punto_recarga`, `id_central`, `ubicacion_punto_recarga`, `precio`, `estado`) VALUES
-	(1, '0039051', 'Zona 1 – EPS 4 – Universidad de Alicante', 0.350, 'DESCONECTADO');
-INSERT INTO `punto_recarga` (`id_punto_recarga`, `id_central`, `ubicacion_punto_recarga`, `precio`, `estado`) VALUES
-	(2, '0039051', 'Zona 2 – EPS 4 – Universidad de Alicante', 0.350, 'DESCONECTADO');
-INSERT INTO `punto_recarga` (`id_punto_recarga`, `id_central`, `ubicacion_punto_recarga`, `precio`, `estado`) VALUES
-	(3, '0039051', 'Zona 3 – EPS 4 – Universidad de Alicante', 0.350, 'DESCONECTADO');
+INSERT INTO `punto_recarga` (`id_punto_recarga`, `id_central`, `ubicacion_punto_recarga`, `precio`, `estado`, `temperatura`, `ultima_actualizacion`) VALUES
+	(1, '0039051', 'PRUEBA2', 0.350, 'DESCONECTADO', 15.7, '2025-12-11 19:43:49');
+INSERT INTO `punto_recarga` (`id_punto_recarga`, `id_central`, `ubicacion_punto_recarga`, `precio`, `estado`, `temperatura`, `ultima_actualizacion`) VALUES
+	(2, '0039051', 'Zona 2 – EPS 4 – Universidad de Alicante', 0.350, 'DESCONECTADO', 12.7, '2025-12-11 19:39:11');
+INSERT INTO `punto_recarga` (`id_punto_recarga`, `id_central`, `ubicacion_punto_recarga`, `precio`, `estado`, `temperatura`, `ultima_actualizacion`) VALUES
+	(3, '0039051', 'Zona 3 – EPS 4 – Universidad de Alicante', 0.350, 'DESCONECTADO', 8.5, '2025-12-11 19:39:11');
+
+-- Volcando estructura para disparador evcharging.generar_id_conductor
+SET @OLDTMP_SQL_MODE=@@SQL_MODE, SQL_MODE='NO_ZERO_IN_DATE,NO_ZERO_DATE,NO_ENGINE_SUBSTITUTION';
+DELIMITER //
+CREATE TRIGGER generar_id_conductor
+BEFORE INSERT ON conductor
+FOR EACH ROW
+BEGIN
+    DECLARE max_numero INT;
+    
+    -- Encontrar el número máximo actual
+    SELECT IFNULL(MAX(CAST(SUBSTRING(id_conductor, 4) AS UNSIGNED)), 0) 
+    INTO max_numero 
+    FROM conductor;
+    
+    -- Generar nuevo ID
+    SET NEW.id_conductor = CONCAT('AAA', (max_numero + 1));
+END//
+DELIMITER ;
+SET SQL_MODE=@OLDTMP_SQL_MODE;
 
 /*!40103 SET TIME_ZONE=IFNULL(@OLD_TIME_ZONE, 'system') */;
 /*!40101 SET SQL_MODE=IFNULL(@OLD_SQL_MODE, '') */;

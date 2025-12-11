@@ -2,7 +2,7 @@ import threading
 import time
 import json
 import requests
-import datetime
+from datetime import datetime
 
 class WeatherControlOffice:
     def __init__(self, config_file = "weather_config.json", api_central = "http://localhost:3000"):
@@ -37,8 +37,8 @@ class WeatherControlOffice:
             data = response.json()
 
             if response.status_code == 200:
-                temp = data["main"]["temp"]
-                print("[INFO]: Temperatura actual en {city}, {country}: {temp}ºC")
+                temp = data["main"]["temp"] # Saco solo la temperatura del JSON
+                print(f"[INFO]: Temperatura actual en {city}, {country}: {temp}ºC")
                 return temp
             else:
                 print(f"Error al obtener datos para {city}, {country}: {data.get('message', 'Unknown error')}")
@@ -61,19 +61,38 @@ class WeatherControlOffice:
             print(f"Error en la conexión con la central para CP_ID {cp_id}: {e}")
 
 
-    def verificar_localizaciones(self): # Verificamos la temperatur de todas las localizaciones
+    def verificar_localizaciones(self): # para guardar la última temperatura conocida de cada CP
+        if not hasattr(self, 'ultimas_temperaturas'):
+            self.ultimas_temperaturas = {}
+        
         for loc in self.localizaciones:
             temp = self.get_temperature(loc["city"], loc["country"])
 
             if temp is not None:
                 cp_id = loc["cp_id"]
-
-                if temp < 0 and cp_id not in self.localizaciones_alertadas: # Si la temperatura está por debajo de 0
-                    print(f"[ALERTA]: La ciudad {loc["city"]} con CP_ID {cp_id} perteneciente a esa ciudad, se encuentra a {temp} ºC.")
+                
+                # Notificar SIEMPRE el cambio de temperatura (nuevo)
+                if cp_id in self.ultimas_temperaturas:
+                    temp_anterior = self.ultimas_temperaturas[cp_id]
+                    # Notificar si la temperatura cambió más de 0.5°C (evita notificaciones por cambios mínimos)
+                    if abs(temp - temp_anterior) >= 0.5:
+                        print(f"[TEMPERATURA] CP {cp_id}: {temp_anterior}°C → {temp}°C")
+                        self.notificar_central(cp_id, "cambio_temperatura", temp)
+                else:
+                    # Primera vez que vemos este CP
+                    print(f"[TEMPERATURA] CP {cp_id}: primera medición {temp}°C")
+                    self.notificar_central(cp_id, "cambio_temperatura", temp)
+                
+                # Guardar la nueva temperatura
+                self.ultimas_temperaturas[cp_id] = temp
+                
+                # alerta por debajo de 0°C
+                if temp < 0 and cp_id not in self.localizaciones_alertadas:
+                    print(f"[ALERTA]: La ciudad {loc['city']} con CP_ID {cp_id} perteneciente a esa ciudad, se encuentra a {temp} ºC.")
                     self.notificar_central(cp_id, "bajo_zero", temp)
                     self.localizaciones_alertadas.add(cp_id)
                 elif temp >= 0 and cp_id in self.localizaciones_alertadas:
-                    print(f"[INFO]: Alerta finalizada en la ciudad {loc["city"]} con CP_ID {cp_id} perteneciente a esa ciudad. Temperatura actual: {temp} ºC.")
+                    print(f"[INFO]: Alerta finalizada en la ciudad {loc['city']} con CP_ID {cp_id} perteneciente a esa ciudad. Temperatura actual: {temp} ºC.")
                     self.notificar_central(cp_id, "normal", temp)
                     self.localizaciones_alertadas.remove(cp_id)
 

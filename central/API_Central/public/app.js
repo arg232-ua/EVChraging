@@ -99,14 +99,7 @@ async function fetchCPs() {
     } catch (error) {
         console.error('Error obteniendo CPs:', error);
         // Mostrar datos de ejemplo si la API falla (para desarrollo)
-        showNotification('Usando datos de ejemplo - API no disponible', 'warning');
         
-        // Datos de ejemplo para desarrollo
-        appState.cps = [
-            { id: 'CP001', estado: 'ACTIVADO', ubicacion: 'Alicante Centro', precio: 0.35, temperatura: 15, ultimaConexion: new Date().toISOString() },
-            { id: 'CP002', estado: 'SUMINISTRANDO', ubicacion: 'San Vicente', precio: 0.40, temperatura: 12, ultimaConexion: new Date().toISOString() },
-            { id: 'CP003', estado: 'PARADO', ubicacion: 'Elche', precio: 0.38, temperatura: -2, ultimaConexion: new Date().toISOString() }
-        ];
         renderCPs();
         updateSystemStats();
         return false;

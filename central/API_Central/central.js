@@ -59,7 +59,7 @@ centralSD.get("/test", (req, res) => {
 // Obtener todos los puntos de carga
 centralSD.get("/cps", (request, response) => {
     console.log('📡 Solicitud GET /cps recibida');
-    const sql = 'SELECT id_punto_recarga, ubicacion_punto_recarga, precio, estado FROM punto_recarga';
+    const sql = 'SELECT id_punto_recarga, ubicacion_punto_recarga, precio, estado, temperatura FROM punto_recarga';
     
     connection.query(sql, (error, resultado) => {
         if (error) {
@@ -143,6 +143,96 @@ centralSD.get("/weather-alerts", (request, response) => {
         }
         console.log(`✅ Alertas meteorológicas obtenidas: ${results.length} registros`);
         response.json(results);
+    });
+});
+
+// Endpoint para RECIBIR alertas meteorológicas del EV_W
+centralSD.post("/weather-alert", (request, response) => {
+    console.log('Solicitud POST /weather-alert recibida:', request.body);
+    
+    const { cp_id, alert_type, temperature } = request.body;
+    
+    if (!cp_id || !alert_type || temperature === undefined) {
+        return response.status(400).json({ 
+            error: 'Datos incompletos',
+            required: ['cp_id', 'alert_type', 'temperature'] 
+        });
+    }
+    
+    // Insertar en auditoría
+    const auditSql = `INSERT INTO auditoria (fecha_hora, ip_origen, accion, descripcion) VALUES (NOW(), EV_W, 'weather_alert', ?)`;
+    
+    let descripcion;
+    let nuevoEstado;
+    
+    // Determinar descripción y estado según el tipo de alerta
+    switch(alert_type) {
+        case 'bajo_zero':
+            descripcion = `ALERTA METEOROLÓGICA: Temperatura ${temperature}°C en CP ${cp_id}`;
+            nuevoEstado = 'PARADO';
+            break;
+        case 'normal':
+            descripcion = `NORMALIZACIÓN: Temperatura ${temperature}°C en CP ${cp_id}`;
+            nuevoEstado = 'ACTIVADO';
+            break;
+        case 'cambio_temperatura':
+            descripcion = `ACTUALIZACIÓN: Nueva temperatura ${temperature}°C en CP ${cp_id}`;
+            nuevoEstado = null; // No cambia estado, solo temperatura
+            break;
+        default:
+            descripcion = `Informe meteorológico: Temperatura ${temperature}°C en CP ${cp_id}`;
+            nuevoEstado = null;
+    }
+    
+    // Actualizar temperatura en la tabla punto_recarga
+    const updateTempSql = `UPDATE punto_recarga SET temperatura = ? WHERE id_punto_recarga = ?`;
+    
+    // Si hay que cambiar estado, lo hacemos
+    let updateEstadoSql = '';
+    let estadoParams = [];
+    
+    if (nuevoEstado !== null) {
+        updateEstadoSql = `UPDATE punto_recarga SET estado = ? WHERE id_punto_recarga = ?`;
+        estadoParams = [nuevoEstado, cp_id];
+    }
+    
+    // Ejecutar en secuencia
+    connection.query(auditSql, [descripcion], (err1) => {
+        if (err1) console.error('Error en auditoría:', err1.message);
+        
+        // SIEMPRE actualizar temperatura
+        connection.query(updateTempSql, [temperature, cp_id], (err2) => {
+            if (err2) {
+                console.error('Error actualizando temperatura:', err2.message);
+            } else {
+                console.log(`Temperatura actualizada: CP ${cp_id} = ${temperature}°C`);
+            }
+            
+            // Actualizar estado solo si es necesario
+            if (nuevoEstado !== null && updateEstadoSql) {
+                connection.query(updateEstadoSql, estadoParams, (err3) => {
+                    if (err3) {
+                        console.error('Error actualizando estado:', err3.message);
+                    } else {
+                        console.log(`Estado actualizado: CP ${cp_id} = ${nuevoEstado}`);
+                    }
+                    
+                    finalizarRespuesta();
+                });
+            } else {
+                finalizarRespuesta();
+            }
+            
+            function finalizarRespuesta() {
+                console.log(`Alerta procesada: CP ${cp_id} - ${temperature}°C - ${alert_type}`);
+                response.json({ 
+                    success: true, 
+                    message: `Temperatura actualizada para CP ${cp_id}`,
+                    temperature: temperature,
+                    state_changed: nuevoEstado !== null
+                });
+            }
+        });
     });
 });
 
