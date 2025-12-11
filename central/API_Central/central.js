@@ -1,211 +1,192 @@
 const express = require("express"); 
 const centralSD = express(); 
-// Se define el puerto 
-const port=3000; 
-const mysql = require ("mysql"); 
+const path = require('path');
+const mysql = require("mysql"); 
 const bodyParser = require("body-parser"); 
+
+// Se define el puerto 
+const port = 3000;
+
+// CORS
+centralSD.use((req, res, next) => {
+    res.header('Access-Control-Allow-Origin', '*');
+    res.header('Access-Control-Allow-Headers', 'Origin, X-Requested-With, Content-Type, Accept, Authorization');
+    res.header('Access-Control-Allow-Methods', 'GET, POST, PUT, DELETE, OPTIONS');
+    if (req.method === 'OPTIONS') {
+        return res.sendStatus(200);
+    }
+    next();
+});
+
+// Body parser para JSON
+centralSD.use(bodyParser.json());
+centralSD.use(bodyParser.urlencoded({ extended: true }));
+centralSD.use(express.static(__dirname));
+
 // Configuración de la conexión a la base de datos MySQL 
 const connection = mysql.createConnection({ 
     host: 'localhost', 
-    user:'sd_remoto', 
+    user: 'sd_remoto', 
     password: '1234', 
-    database:'evcharging' 
+    database: 'evcharging' 
 }); 
 
 // Comprobar conexión a la base de datos 
-connection.connect(error=> { 
-    if (error) throw error; 
-    console.log('Conexión a la base de datos evcharging correcta'); 
+connection.connect(error => { 
+    if (error) {
+        console.error('❌ Error conectando a la base de datos:', error.message);
+        process.exit(1);
+    }
+    console.log('✅ Conexión a la base de datos evcharging correcta'); 
 }); 
 
-centralSD.get("/",(req, res) => { 
-res.json({message:'Página de inicio de aplicación CENTRAL de SD'}) 
-}); 
-
-// Ejecutar la aplicacion 
-centralSD.listen(port, () => { 
-console.log(`Ejecutando la aplicación API REST de la central en el puerto 
-${port}`); 
-});
-
-//
-
-// Listado de todos los usuarios 
-centralSD.get("/usuarios",(request, response) => { 
-    console.log('Listado de todos los usuarios'); 
-    const sql = 'SELECT * FROM conductor'; 
-    connection.query(sql,(error,resultado)=>{ 
-        if (error) throw error; 
-        if (resultado.length > 0){ 
-            response.json(resultado); 
-        } else { 
-            response.send('No hay resultados'); 
-        } 
-    }); 
-}); 
-
-// Obtener datos de un usuario 
-centralSD.get("/usuarios/:id",(request, response) => { 
-    console.log('Obtener datos de un usuario'); 
-    const {id} = request.params; 
-    const sql = `SELECT * FROM conductor WHERE id_conductor = ?`; 
-    connection.query(sql, [id],(error,resultado)=>{ 
-        if (error) throw error; 
-        if (resultado.length > 0){ 
-            response.json(resultado); 
-        } else { 
-            response.send('No hay resultados'); 
-        } 
-    }) 
-}); 
-
-//Para poder procesar los parámetros dentro de body como json 
-centralSD.use(bodyParser.json()); 
-
-// Añadir un nuevo usuario 
-centralSD.post("/usuarios",(request, response) => { 
-    console.log('Añadir nuevo usuario'); 
-    const sql = 'INSERT INTO conductor SET ?'; 
-        const usuarioObj = { 
-            nombre: request.body.nombre, 
-            apellidos: request.body.apellidos, 
-            email_conductor: request.body.correo,
-            telefono_conductor: request.body.telefono,
-            dni_conductor: request.body.dni
-        } 
-        connection.query(sql,usuarioObj,error => { 
-        if (error) throw error; 
-        response.send('Usuario creado'); 
-    });  
-});
-
-// 4.5
-// Modificar un usuario 
-centralSD.put("/usuarios/:id",(request, response) => { 
-    console.log('Modificar usuario'); 
-    const {id} = request.params; 
-    const {nombre,apellidos, telefono, correo, dni} = request.body; 
-    const sql = `UPDATE conductor SET nombre=?, apellidos=?, telefono_conductor=?, email_conductor=?, dni_conductor=? WHERE id_conductor=?`; 
-    
-    connection.query(sql, [nombre, apellidos, telefono, correo, dni, id], (error, results) => { 
-        if (error) {
-            console.error('Error en la consulta:', error);
-            return response.status(500).send('Error al modificar usuario');
-        }
-        
-        if (results.affectedRows === 0) {
-            return response.status(404).send('Usuario no encontrado');
-        }
-        
-        response.send('Usuario modificado correctamente'); 
-    });  
-});
-
-// Borrar un usuario 
-centralSD.delete("/usuarios/:id", (request, response) => { 
-    console.log('Borrar usuario'); 
-    const {id} = request.params; 
-    const sql = `DELETE FROM conductor WHERE id_conductor = ?`; 
-    
-    connection.query(sql, [id], (error, results) => { 
-        if (error) {
-            console.error('Error al borrar usuario:', error);
-            return response.status(500).send('Error al borrar usuario');
-        }
-        
-        if (results.affectedRows === 0) {
-            return response.status(404).send('Usuario no encontrado');
-        }
-        
-        response.send('Usuario borrado correctamente'); 
-    });  
-});
-
-// DE EV_W
-// Endpoint para recibir alertas meteorológicas de EV_W
-centralSD.post("/weather-alert", (request, response) => {
-    console.log('Alerta meteorológica recibida de EV_W');
-    const { cp_id, alert_type, temperature, timestamp } = request.body;
-    
-    // Registrar en auditoría
-    const audit_sql = `INSERT INTO auditoria (fecha_hora, ip_origen, accion, descripcion) VALUES (?, ?, ?, ?)`;
-    const descripcion = `CP ${cp_id}: Temperatura ${temperature}°C - ${alert_type === 'bajo_zero' ? 'ALERTA POR FRÍO' : 'ALERTA FINALIZADA'}`;
-    
-    connection.query(audit_sql, [timestamp, request.ip, 'weather_alert', descripcion], (error) => {
-        if (error) console.error('Error en auditoría:', error);
+centralSD.get("/", (req, res) => { 
+    res.json({
+        message: 'API CENTRAL de SD funcionando',
+        version: '1.0.0',
+        endpoints: ['/usuarios', '/cps', '/audit', '/stats', '/weather-alerts']
     });
+}); 
+
+centralSD.get("/test", (req, res) => {
+    res.json({
+        status: 'ok', 
+        message: 'API funcionando correctamente',
+        timestamp: new Date().toISOString()
+    });
+});
+
+// Obtener todos los puntos de carga
+centralSD.get("/cps", (request, response) => {
+    console.log('📡 Solicitud GET /cps recibida');
+    const sql = 'SELECT id_punto_recarga, ubicacion_punto_recarga, precio, estado FROM punto_recarga';
     
-    console.log(`Procesando alerta para CP ${cp_id}: ${temperature}°C`);
+    connection.query(sql, (error, resultado) => {
+        if (error) {
+            console.error('❌ Error en /cps:', error.message);
+            return response.status(500).json({ 
+                error: 'Error en la base de datos', 
+                details: error.message 
+            });
+        }
+        console.log(`✅ CPs obtenidos: ${resultado.length} registros`);
+        response.json(resultado);
+    });
+});
+
+// Obtener auditoría
+centralSD.get("/audit", (request, response) => {
+    console.log('📡 Solicitud GET /audit recibida');
+    const sql = "SELECT * FROM auditoria ORDER BY fecha_hora DESC LIMIT 20";
     
-    // Enviar mensaje a Kafka para que la central Python lo procese
-    const kafka = require('kafka-node');
-    const Producer = kafka.Producer;
-    const client = new kafka.KafkaClient({ kafkaHost: 'localhost:9092' }); // Ajustar según configuración
-    const producer = new Producer(client);
+    connection.query(sql, (error, resultado) => {
+        if (error) {
+            console.error('❌ Error en /audit:', error.message);
+            return response.status(500).json({ 
+                error: 'Error en la base de datos', 
+                details: error.message 
+            });
+        }
+        console.log(`✅ Eventos de auditoría obtenidos: ${resultado.length} registros`);
+        response.json(resultado);
+    });
+});
+
+// Obtener estadísticas del sistema
+centralSD.get("/stats", (request, response) => {
+    console.log('📡 Solicitud GET /stats recibida');
     
-    producer.on('ready', () => {
-        // Preparar el mensaje para la central
-        const mensajeCentral = {
-            tipo: "ALERTA_METEOROLOGICA",
-            cp_id: cp_id,
-            alert_type: alert_type,
-            temperature: temperature,
-            origen: "EV_W",
-            timestamp: timestamp || new Date().toISOString()
+    const queries = {
+        total_cps: 'SELECT COUNT(*) as count FROM punto_recarga',
+        active_cps: "SELECT COUNT(*) as count FROM punto_recarga WHERE estado IN ('ACTIVADO', 'SUMINISTRANDO')",
+        total_drivers: 'SELECT COUNT(*) as count FROM conductor',
+        active_alerts: "SELECT COUNT(*) as count FROM auditoria WHERE accion = 'weather_alert' AND fecha_hora > DATE_SUB(NOW(), INTERVAL 1 HOUR)"
+    };
+
+    Promise.all(Object.values(queries).map(query => 
+        new Promise((resolve, reject) => {
+            connection.query(query, (error, result) => {
+                if (error) reject(error);
+                else resolve(result[0].count);
+            });
+        })
+    )).then(results => {
+        const stats = {
+            total_cps: results[0] || 0,
+            active_cps: results[1] || 0,
+            total_drivers: results[2] || 0,
+            active_alerts: results[3] || 0
         };
-        
-        // Enviar al topic que escucha la central Python
-        const payloads = [
-            {
-                topic: "alertas_meteorologicas", // Nuevo topic para alertas
-                messages: JSON.stringify(mensajeCentral),
-                partition: 0,
-                key: cp_id
-            }
-        ];
-        
-        producer.send(payloads, (error, data) => {
-            if (error) {
-                console.error(`Error al enviar alerta a Kafka:`, error);
-                response.status(500).json({ 
-                    status: 'error', 
-                    message: 'Error al procesar la alerta' 
-                });
-            } else {
-                console.log(`Alerta meteorológica para CP ${cp_id} enviada a central`);
-                
-                response.json({ 
-                    status: 'success', 
-                    message: `Alerta meteorológica procesada para CP ${cp_id}`,
-                    details: {
-                        cp_id: cp_id,
-                        temperature: temperature,
-                        alert_type: alert_type,
-                        action: alert_type === 'bajo_zero' ? 'CP será parado' : 'CP será reanudado',
-                        timestamp: timestamp || new Date().toISOString()
-                    }
-                });
-            }
-        });
-    });
-    
-    producer.on('error', (error) => {
-        console.error('Error en Kafka producer:', error);
+        console.log(`✅ Estadísticas obtenidas:`, stats);
+        response.json(stats);
+    }).catch(error => {
+        console.error('❌ Error en /stats:', error.message);
         response.status(500).json({ 
-            status: 'error', 
-            message: 'Error en la comunicación con Kafka' 
+            error: 'Error obteniendo estadísticas', 
+            details: error.message 
         });
     });
 });
 
-// Endpoint para consultar alertas activas
+// Endpoint para consultar alertas meteorológicas
 centralSD.get("/weather-alerts", (request, response) => {
+    console.log('📡 Solicitud GET /weather-alerts recibida');
+    
     const sql = "SELECT * FROM auditoria WHERE accion = 'weather_alert' ORDER BY fecha_hora DESC LIMIT 10";
     connection.query(sql, (error, results) => {
         if (error) {
-            console.error('Error:', error);
-            return response.status(500).json({ error: 'Error en la base de datos' });
+            console.error('❌ Error en /weather-alerts:', error.message);
+            return response.status(500).json({ 
+                error: 'Error en la base de datos',
+                details: error.message 
+            });
         }
+        console.log(`✅ Alertas meteorológicas obtenidas: ${results.length} registros`);
         response.json(results);
     });
+});
+
+// Listado de todos los usuarios (conductores)
+centralSD.get("/usuarios", (request, response) => { 
+    console.log('📡 Solicitud GET /usuarios recibida');
+    
+    const sql = 'SELECT * FROM conductor'; 
+    connection.query(sql, (error, resultado) => { 
+        if (error) {
+            console.error('❌ Error en /usuarios:', error.message);
+            return response.status(500).json({ 
+                error: 'Error en la base de datos',
+                details: error.message 
+            });
+        }
+        console.log(`✅ Conductores obtenidos: ${resultado.length} registros`);
+        response.json(resultado); 
+    }); 
+});
+
+centralSD.use((req, res, next) => {
+    const error = new Error('Ruta no encontrada');
+    error.status = 404;
+    next(error);
+});
+
+centralSD.use((error, req, res, next) => {
+    res.status(error.status || 500);
+    res.json({
+        error: {
+            message: error.message,
+            path: req.originalUrl
+        }
+    });
+});
+
+// Ejecutar la aplicación
+centralSD.listen(port, () => { 
+    console.log(`🚀 API REST de la central ejecutándose en: http://localhost:${port}`);
+    console.log(`📊 Endpoints disponibles:`);
+    console.log(`   http://localhost:${port}/cps`);
+    console.log(`   http://localhost:${port}/audit`);
+    console.log(`   http://localhost:${port}/stats`);
+    console.log(`   http://localhost:${port}/usuarios`);
+    console.log(`   http://localhost:${port}/weather-alerts`);
 });
