@@ -1,5 +1,5 @@
 // Configuración
-const API_BASE_URL = 'http://localhost:3000';
+const API_BASE_URL = 'https://localhost:3000';
 let refreshInterval = null;
 
 // Elementos del DOM
@@ -245,34 +245,42 @@ function renderDrivers() {
 function renderAlerts() {
     elements.alertsContainer.innerHTML = '';
     
+    console.log('Alertas recibidas del API:', appState.alerts);
+    
     if (appState.alerts.length === 0) {
         elements.alertsContainer.innerHTML = `
             <div class="alert-item info">
                 <div class="alert-icon">
-                    <i class="fas fa-info-circle"></i>
+                    <i class="fas fa-check-circle"></i>
                 </div>
                 <div class="alert-content">
                     <h4>Sin alertas activas</h4>
-                    <p>No hay alertas meteorológicas en este momento</p>
+                    <p>Todos los sistemas funcionando normalmente</p>
                 </div>
             </div>
         `;
         return;
     }
     
+    // Mostrar alertas activas
     appState.alerts.forEach(alert => {
-        const isWarning = alert.descripcion?.includes('ALERTA') || alert.temperature < 0;
+        // Verificar que el CP asociado todavía está PARADO
+        const cpIdMatch = alert.descripcion?.match(/CP (\d+)/);
+        const cpId = cpIdMatch ? cpIdMatch[1] : null;
         
         const alertItem = document.createElement('div');
-        alertItem.className = `alert-item ${isWarning ? 'warning' : 'info'}`;
+        alertItem.className = 'alert-item warning';
         alertItem.innerHTML = `
             <div class="alert-icon">
-                <i class="fas fa-${isWarning ? 'exclamation-triangle' : 'info-circle'}"></i>
+                <i class="fas fa-exclamation-triangle"></i>
             </div>
             <div class="alert-content">
-                <h4>${isWarning ? 'ALERTA METEOROLÓGICA' : 'Informe Meteorológico'}</h4>
-                <p>${alert.descripcion || `Temperatura: ${alert.temperature}°C`}</p>
-                <small>${formatDate(alert.fecha_hora)}</small>
+                <h4>⚠️ ALERTA ACTIVA</h4>
+                <p>${alert.descripcion || 'Alerta meteorológica'}</p>
+                <small>
+                    ${formatDate(alert.fecha_hora)}
+                    ${cpId ? `<br><i class="fas fa-plug"></i> CP ${cpId} - Temperatura: ${alert.cp_temperatura || alert.temperature || '?'}°C` : ''}
+                </small>
             </div>
         `;
         
@@ -355,6 +363,16 @@ function setupEventListeners() {
         fetchWeatherAlerts();
         showNotification('Alertas actualizadas', 'success');
     });
+
+    // Botón para simular alerta
+    document.getElementById('simulate-alert').addEventListener('click', () => {
+        showTemperatureModal('alert');
+    });
+    
+    // Botón para quitar alerta
+    document.getElementById('remove-alert').addEventListener('click', () => {
+        showTemperatureModal('remove');
+    });
     
     // Filtro de estados
     elements.filterStatus.addEventListener('change', (e) => {
@@ -364,6 +382,160 @@ function setupEventListeners() {
     
     // Refresco automático cada 30 segundos
     refreshInterval = setInterval(refreshAllData, 30000);
+}
+
+// Funciones para simular alertas meteorológicas (como si vinieran del EV_W)
+function showTemperatureModal(action) {
+    const modal = document.createElement('div');
+    modal.className = 'modal';
+    modal.id = 'temp-modal';
+    
+    const title = action === 'alert' ? 'Simular Alerta' : 'Simular Normalización';
+    const cpId = prompt("Introduce el ID del punto de carga:", "1");
+    
+    if (!cpId) return; // Si el usuario cancela
+    
+    modal.innerHTML = `
+        <div class="modal-content">
+            <h3><i class="fas ${action === 'alert' ? 'fa-snowflake' : 'fa-sun'}"></i> ${title}</h3>
+            <p style="color: #90a4ae; margin-bottom: 20px; text-align: center;">
+                <i class="fas fa-satellite"></i> Simulando envío desde servicio meteorológico
+            </p>
+            <div class="temp-input-group">
+                <label for="temperature">Temperatura (°C):</label>
+                <input type="number" id="temperature" step="0.1" placeholder="Ej: ${action === 'alert' ? '-5' : '10'}">
+                <p style="font-size: 0.8rem; color: #90a4ae; margin-top: 5px;">
+                    ${action === 'alert' ? 'Debe ser menor a 0°C para activar alerta' : 'Debe ser mayor o igual a 0°C para normalizar'}
+                </p>
+            </div>
+            <div class="modal-error" id="modal-error"></div>
+            <div class="modal-buttons">
+                <button id="cancel-modal" class="btn btn-secondary">Cancelar</button>
+                <button id="confirm-modal" class="btn ${action === 'alert' ? 'btn-warning' : 'btn-success'}">
+                    <i class="fas fa-cloud-upload-alt"></i> ${action === 'alert' ? 'Enviar Alerta' : 'Enviar Normalización'}
+                </button>
+            </div>
+        </div>
+    `;
+    
+    document.body.appendChild(modal);
+    modal.style.display = 'flex';
+    
+    // Event listeners del modal
+    const tempInput = modal.querySelector('#temperature');
+    tempInput.focus();
+    
+    modal.querySelector('#cancel-modal').addEventListener('click', () => {
+        document.body.removeChild(modal);
+    });
+    
+    modal.querySelector('#confirm-modal').addEventListener('click', async () => {
+        const temperature = parseFloat(tempInput.value);
+        const errorEl = modal.querySelector('#modal-error');
+        
+        // Validaciones
+        if (isNaN(temperature)) {
+            errorEl.textContent = 'Por favor, introduce una temperatura válida';
+            errorEl.style.display = 'block';
+            return;
+        }
+        
+        if (action === 'alert' && temperature >= 0) {
+            errorEl.textContent = 'Para activar alerta, la temperatura debe ser menor a 0°C';
+            errorEl.style.display = 'block';
+            return;
+        }
+        
+        if (action === 'remove' && temperature < 0) {
+            errorEl.textContent = 'Para normalizar, la temperatura debe ser mayor o igual a 0°C';
+            errorEl.style.display = 'block';
+            return;
+        }
+        
+        // Determinar el tipo de alerta como lo haría el EV_W
+        let alertType;
+        
+        if (action === 'alert') {
+            // Si temperatura < 0, es alerta 'bajo_zero'
+            alertType = 'bajo_zero';
+        } else {
+            // Si temperatura >= 0, es 'normal'
+            alertType = 'normal';
+        }
+        
+        // Datos que enviaría el EV_W (OpenWeather)
+        const evwData = {
+            cp_id: cpId,
+            alert_type: alertType,
+            temperature: temperature,
+            source: 'simulated_weather_service', // Para identificar que es simulado
+            timestamp: new Date().toISOString()
+        };
+        
+        try {
+            console.log('📡 Enviando alerta simulada desde EV_W:', evwData);
+            
+            const response = await fetch(`${API_BASE_URL}/weather-alert`, {
+                method: 'POST',
+                headers: {
+                    'Content-Type': 'application/json'
+                },
+                body: JSON.stringify(evwData)
+            });
+            
+            if (response.ok) {
+                const result = await response.json();
+                
+                // Mostrar mensaje apropiado
+                if (action === 'alert') {
+                    showNotification(
+                        `⚠️ Alerta meteorológica simulada enviada: CP ${cpId} a ${temperature}°C`,
+                        'warning'
+                    );
+                } else {
+                    showNotification(
+                        `✅ Normalización simulada enviada: CP ${cpId} a ${temperature}°C`,
+                        'success'
+                    );
+                }
+                
+                console.log('Respuesta del servidor:', result);
+                
+                // Actualizar datos automáticamente
+                setTimeout(() => {
+                    refreshAllData();
+                }, 1000);
+                
+            } else {
+                const errorText = await response.text();
+                throw new Error(`API respondió con error: ${response.status} - ${errorText}`);
+            }
+        } catch (error) {
+            console.error('Error enviando alerta simulada:', error);
+            showNotification(
+                `❌ Error al enviar alerta simulada: ${error.message}`,
+                'error'
+            );
+        }
+        
+        // Cerrar modal
+        document.body.removeChild(modal);
+    });
+    
+    // Cerrar al hacer clic fuera
+    modal.addEventListener('click', (e) => {
+        if (e.target === modal) {
+            document.body.removeChild(modal);
+        }
+    });
+    
+    // Cerrar con ESC
+    document.addEventListener('keydown', function closeModal(e) {
+        if (e.key === 'Escape' && document.body.contains(modal)) {
+            document.body.removeChild(modal);
+            document.removeEventListener('keydown', closeModal);
+        }
+    });
 }
 
 // Utilidades adicionales

@@ -119,8 +119,7 @@ class EV_CP:
     def _handle_command(self, msg: dict):
         cmd = (msg.get("cmd") or "").upper()
         meta = msg.get("meta") or {}
-        if msg.get("motivo"):
-            mot = msg.get("motivo")
+        mot = msg.get("motivo", "")
 
         if msg.get("tipo") == "DESCONEXION_CENTRAL":
             mensaje = msg.get("mensaje", "La central se ha desconectado")

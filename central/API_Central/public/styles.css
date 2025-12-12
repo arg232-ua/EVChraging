@@ -128,13 +128,69 @@ header h1 {
     color: white;
 }
 
+/* Agrega estos estilos en la sección de botones */
+.btn-warning {
+    background: linear-gradient(135deg, #ff9800 0%, #f57c00 100%);
+    color: white;
+}
+
+.btn-success {
+    background: linear-gradient(135deg, #4caf50 0%, #388e3c 100%);
+    color: white;
+}
+
+.alert-controls {
+    display: flex;
+    gap: 10px;
+    align-items: center;
+}
+
+/* Estilo para el select cuando está cerrado */
 .filter-controls select {
     padding: 10px 15px;
     border-radius: 5px;
     background: rgba(255, 255, 255, 0.1);
     border: 1px solid rgba(255, 255, 255, 0.2);
-    color: white;
+    color: white; /* Texto blanco cuando está cerrado */
     min-width: 200px;
+    appearance: none;
+    -webkit-appearance: none;
+    -moz-appearance: none;
+}
+
+/* Estilo para las opciones dentro del select (cuando se despliega) */
+.filter-controls option {
+    background-color: white; /* Fondo blanco */
+    color: black; /* Texto negro */
+    padding: 10px;
+}
+
+/* Estilo para la opción seleccionada (visible cuando está cerrado) */
+.filter-controls select:focus {
+    outline: none;
+    border-color: #4fc3f7;
+}
+
+/* Para mejorar la apariencia del dropdown en diferentes navegadores */
+.filter-controls select::-ms-expand {
+    display: none;
+}
+
+/* Estilo del ícono del dropdown */
+.filter-controls {
+    position: relative;
+}
+
+.filter-controls::after {
+    content: '\f078';
+    font-family: 'Font Awesome 6 Free';
+    font-weight: 900;
+    position: absolute;
+    right: 15px;
+    top: 50%;
+    transform: translateY(-50%);
+    color: #4fc3f7;
+    pointer-events: none;
 }
 
 /* Tarjetas de CPs */
@@ -384,4 +440,101 @@ footer {
     .filter-controls select {
         width: 100%;
     }
+}
+
+/* Modal para ingresar temperatura - AÑADE ESTO AL FINAL DEL ARCHIVO */
+.modal {
+    display: none;
+    position: fixed;
+    top: 0;
+    left: 0;
+    width: 100%;
+    height: 100%;
+    background: rgba(0, 0, 0, 0.8);
+    z-index: 1000;
+    justify-content: center;
+    align-items: center;
+}
+
+.modal-content {
+    background: #1e1e2e;
+    padding: 30px;
+    border-radius: 10px;
+    width: 90%;
+    max-width: 400px;
+    box-shadow: 0 10px 30px rgba(0, 0, 0, 0.5);
+    border: 1px solid rgba(79, 195, 247, 0.3);
+}
+
+.modal-content h3 {
+    color: #4fc3f7;
+    margin-bottom: 15px;
+    text-align: center;
+    font-size: 1.3rem;
+}
+
+.temp-input-group {
+    margin: 20px 0;
+}
+
+.temp-input-group label {
+    display: block;
+    margin-bottom: 8px;
+    color: #b0bec5;
+    font-weight: bold;
+}
+
+.temp-input-group input {
+    width: 100%;
+    padding: 12px 15px;
+    background: rgba(255, 255, 255, 0.1);
+    border: 1px solid rgba(255, 255, 255, 0.3);
+    border-radius: 5px;
+    color: white;
+    font-size: 1.1rem;
+    transition: border 0.3s;
+}
+
+.temp-input-group input:focus {
+    outline: none;
+    border-color: #4fc3f7;
+    box-shadow: 0 0 0 2px rgba(79, 195, 247, 0.2);
+}
+
+.modal-buttons {
+    display: flex;
+    gap: 10px;
+    justify-content: flex-end;
+    margin-top: 25px;
+}
+
+.modal-error {
+    color: #f44336;
+    margin-top: 10px;
+    font-size: 0.9rem;
+    text-align: center;
+    padding: 8px;
+    background: rgba(244, 67, 54, 0.1);
+    border-radius: 5px;
+    border-left: 3px solid #f44336;
+    display: none;
+}
+
+/* Estilo para el texto informativo dentro del modal */
+.modal-info-text {
+    color: #90a4ae;
+    font-size: 0.9rem;
+    margin: 10px 0 20px 0;
+    text-align: center;
+    padding: 10px;
+    background: rgba(79, 195, 247, 0.1);
+    border-radius: 5px;
+    border-left: 3px solid #4fc3f7;
+}
+
+.copyright {
+    font-size: 0.9em;
+    color: #666;
+    margin-top: 5px;
+    font-style: italic;
 }
