@@ -313,12 +313,14 @@ class EvDriver: # Clase conductor
         else: # Si no hay
             print("No hay recarga activa para finalizar")
 
-    def solicitar_recarga(self, cp_id): # Solicitar recarga a la central
-        if not self.verificado: # Si no esta verificado el conductor
-            print("Conductor no verificado. No puede solicitar recargas") # Devolvemos error
+    def solicitar_recarga(self, cp_id):
+        if not self.verificado:
+            print("Conductor no verificado. No puede solicitar recargas")
             return False
         
-        mensaje = { # Construimos el mensaje a enviar a la central
+        print(f"\n[DRIVER] Cambiando estado a: Esperando Confirmacion Central")
+        
+        mensaje = {
             'driver_id': self.driver_id,
             'cp_id': cp_id,
             'type': 'SOLICITAR_RECARGA',
@@ -328,20 +330,20 @@ class EvDriver: # Clase conductor
         try:
             self.respuesta_recibida = False
             self.respuestas_pendientes += 1
-            self.productor.send(TOPIC_CARGA_SOLICITADA, mensaje) # enviamos el mensaje a central
-            self.productor.flush() # Aseguramos que se ha enviado
+            self.productor.send(TOPIC_CARGA_SOLICITADA, mensaje)
+            self.productor.flush()
             print(f"Solicitud de recarga enviada del Conductor {self.driver_id} al Punto de Carga {cp_id}")
             
-            # Esperamos a que el servidor responda para volver a imprimir menu
+            # Esperamos a que el servidor responda
             tiempo_espera = time.time()
-            while not self.respuesta_recibida and (time.time() - tiempo_espera < 30):  # Timeout de 30 segundos
+            while not self.respuesta_recibida and (time.time() - tiempo_espera < 30):
                 time.sleep(0.5)
             
-            if not self.respuesta_recibida: # Si pasado el tiempo no se recibe nada
-                print("ERROR Timeout: No se recibió respuesta del servidor") # Devolvemos error
+            if not self.respuesta_recibida:
+                print("ERROR Timeout: No se recibió respuesta del servidor")
                 self.respuestas_pendientes -= 1
             
-            return True # De lo contrario, seguimos
+            return True
         except Exception as e:
             self.respuestas_pendientes -= 1
             print(f"ERROR al solicitar recarga: {e}")
