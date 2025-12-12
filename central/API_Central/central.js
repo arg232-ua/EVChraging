@@ -59,7 +59,7 @@ centralSD.get("/test", (req, res) => {
 // Obtener todos los puntos de carga
 centralSD.get("/cps", (request, response) => {
     console.log('📡 Solicitud GET /cps recibida');
-    const sql = 'SELECT id_punto_recarga, ubicacion_punto_recarga, precio, estado, temperatura FROM punto_recarga';
+    const sql = 'SELECT id_punto_recarga, ubicacion_punto_recarga, precio, estado, temperatura, activo, credencial, tiene_clave_simetrica FROM punto_recarga';
     
     connection.query(sql, (error, resultado) => {
         if (error) {
