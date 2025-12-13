@@ -102,11 +102,13 @@ def registrar_cp_en_registry(id_cp):
     """
 
     payload = {
-        "id_central": "0039051",  # Id de la central (el de tu BD)
-        "ubicacion_punto_recarga": f"CP {id_cp} – EPS",
-        "precio": 0.35,
-        "estado": "DESCONECTADO"
+    "cp_logico": int(id_cp),  # 🔑 CLAVE: CP lógico
+    "id_central": "0039051",
+    "ubicacion_punto_recarga": f"CP {id_cp} – EPS",
+    "precio": 0.35,
+    "estado": "DESCONECTADO"
     }
+
 
     print(f"[EV_CP_M] Registrando CP {id_cp} en EV_Registry...")
 

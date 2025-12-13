@@ -16,11 +16,12 @@ registry.use(bodyParser.json());
 
 // Conexión MySQL
 const connection = mysql.createConnection({
-    host: '127.0.0.1',
+    host: '172.23.64.1',
     user: 'sd_remoto',
     password: '1234',
     database: 'evcharging'
 });
+
 
 connection.connect(error => {
     if (error) throw error;
@@ -32,33 +33,66 @@ connection.connect(error => {
 // 1) REGISTRAR CP (POST)
 // ===============================
 registry.post("/registro", (req, res) => {
-    const { id_central, ubicacion_punto_recarga, precio, estado } = req.body;
+    const { cp_logico, id_central, ubicacion_punto_recarga, precio, estado } = req.body;
 
-    if (!id_central || !ubicacion_punto_recarga) {
-        return res.status(400).json({ error: "Faltan datos obligatorios" });
-    }
+    if (!cp_logico || !id_central || !ubicacion_punto_recarga) {
+    return res.status(400).json({ error: "Faltan datos obligatorios" });
+}
 
-    const credencial = generarCredencial();
-
-    const sql = `
-        INSERT INTO punto_recarga 
-        (id_central, ubicacion_punto_recarga, precio, estado, credencial, activo)
-        VALUES (?, ?, ?, ?, ?, 1)
+    const sqlBuscar = `
+    SELECT id_punto_recarga
+    FROM punto_recarga
+    WHERE cp_logico = ?
     `;
 
-    connection.query(
-        sql,
-        [id_central, ubicacion_punto_recarga, precio, estado, credencial],
-        (error, result) => {
-            if (error) return res.status(500).json({ error: error.message });
+    connection.query(sqlBuscar, [cp_logico], (err, rows) => {
+        if (err) return res.status(500).json({ error: err.message });
 
-            res.json({
-                message: "CP registrado correctamente",
-                id_punto_recarga: result.insertId,
-                credencial: credencial
+        const credencial = generarCredencial();
+
+        if (rows.length > 0) {
+            // 🔵 CP EXISTENTE → solo actualizar credencial
+            const id_cp_bd = rows[0].id_punto_recarga;
+
+            const sqlUpdate = `
+            UPDATE punto_recarga
+            SET credencial = ?, activo = 1
+            WHERE id_punto_recarga = ?
+            `;
+
+            connection.query(sqlUpdate, [credencial, id_cp_bd], err2 => {
+                if (err2) return res.status(500).json({ error: err2.message });
+
+                return res.json({
+                    message: "CP existente. Credencial actualizada",
+                    id_punto_recarga: id_cp_bd,
+                    credencial
+                });
             });
+
+        } else {
+            // 🟢 CP NUEVO → crear
+            const sqlInsert = `
+            INSERT INTO punto_recarga
+            (cp_logico, id_central, ubicacion_punto_recarga, precio, estado, credencial, activo)
+            VALUES (?, ?, ?, ?, ?, ?, 1)
+            `;
+
+            connection.query(
+                sqlInsert,
+                [cp_logico, id_central, ubicacion_punto_recarga, precio, estado, credencial],
+                (err3, result) => {
+                    if (err3) return res.status(500).json({ error: err3.message });
+
+                    return res.json({
+                        message: "CP nuevo creado",
+                        id_punto_recarga: result.insertId,
+                        credencial
+                    });
+                }
+            );
         }
-    );
+    });
 });
 
 

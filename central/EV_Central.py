@@ -59,11 +59,18 @@ def conectar_bd(servidor_bd): # Conectar a la BD
         )
 
         print(f"Servidor conectado a la Base de Datos en {servidor_bd}") # Si la conexión es exitosa
+        cur = conexion.cursor()
+        cur.execute("SELECT DATABASE()")
+        print("[CENTRAL] DATABASE():", cur.fetchone())
+        cur.execute("SELECT COUNT(*) FROM punto_recarga")
+        print("[CENTRAL] Nº filas punto_recarga:", cur.fetchone())
+        cur.close()
+
         return conexion
     except Exception as e:
         print(f"Error al conectar a la Base de Datos: {e}")
         return None
-
+    
 class EV_Central: # Clase Central (Principal para la práctica)
     def __init__(self, servidor_kafka, servidor_bd): # Inicializamos los parámetros de la central
         self.servidor_kafka = servidor_kafka
@@ -272,31 +279,54 @@ class EV_Central: # Clase Central (Principal para la práctica)
             return False
 
     def validar_cp_en_bd(self, cp_id: str, credencial: str) -> bool:
-        try:
-            cur = self.conn.cursor()
-            cur.execute("""
-                SELECT activo
-                FROM punto_recarga
-                WHERE id_punto_recarga = %s AND credencial = %s
-            """, (cp_id, credencial))
-            row = cur.fetchone()
-            return (row is not None) and (row[0] == 1)
-        except Exception as e:
-            print(f"[CENTRAL] Error validando CP en BD: {e}")
+        conexion = self.obtener_conexion_bd()
+        if not conexion:
             return False
 
-    def marcar_cp_con_clave(self, cp_id: str):
-        # Solo si existe la columna tiene_clave_simetrica
         try:
-            cur = self.conn.cursor()
+            cur = conexion.cursor()
+            cur.execute("""
+                SELECT 1
+                FROM punto_recarga
+                WHERE id_punto_recarga = %s
+            """, (cp_id,))
+            row = cur.fetchone()
+            cur.close()
+            conexion.close()
+
+            return row is not None
+
+        except Exception as e:
+            print(f"[CENTRAL] Error validando CP en BD: {e}")
+            try:
+                conexion.close()
+            except:
+                pass
+            return False
+
+
+
+    def marcar_cp_con_clave(self, cp_id: str):
+        conexion = self.obtener_conexion_bd()
+        if not conexion:
+            return
+
+        try:
+            cur = conexion.cursor()
             cur.execute("""
                 UPDATE punto_recarga
                 SET tiene_clave_simetrica = 1
                 WHERE id_punto_recarga = %s
             """, (cp_id,))
-            self.conn.commit()
+            conexion.commit()
+            cur.close()
+            conexion.close()
         except Exception as e:
-            print(f"[CENTRAL] No se pudo marcar tiene_clave_simetrica (¿columna existe?): {e}")
+            print(f"[CENTRAL] No se pudo marcar tiene_clave_simetrica: {e}")
+            try:    
+                conexion.close()
+            except:
+                pass
 
 
 
