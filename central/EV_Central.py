@@ -6,6 +6,7 @@ import time
 import mysql.connector
 import socket
 import os
+import secrets
 
 # TOPICS
 TOPIC_REGISTROS = "registros_cp"
@@ -268,6 +269,35 @@ class EV_Central: # Clase Central (Principal para la práctica)
             print(f"Error al actualizar estado CP en BD: {e}")
             conexion.close()
             return False
+
+    def validar_cp_en_bd(self, cp_id: str, credencial: str) -> bool:
+        try:
+            cur = self.conn.cursor()
+            cur.execute("""
+                SELECT activo
+                FROM punto_recarga
+                WHERE id_punto_recarga = %s AND credencial = %s
+            """, (cp_id, credencial))
+            row = cur.fetchone()
+            return (row is not None) and (row[0] == 1)
+        except Exception as e:
+            print(f"[CENTRAL] Error validando CP en BD: {e}")
+            return False
+
+    def marcar_cp_con_clave(self, cp_id: str):
+        # Solo si existe la columna tiene_clave_simetrica
+        try:
+            cur = self.conn.cursor()
+            cur.execute("""
+                UPDATE punto_recarga
+                SET tiene_clave_simetrica = 1
+                WHERE id_punto_recarga = %s
+            """, (cp_id,))
+            self.conn.commit()
+        except Exception as e:
+            print(f"[CENTRAL] No se pudo marcar tiene_clave_simetrica (¿columna existe?): {e}")
+
+
 
     def obtener_cps_disponibles_bd(self): # Obtener CPs disponibles
         conexion = self.obtener_conexion_bd() # Nueva conexión a BD
@@ -535,7 +565,7 @@ class EV_Central: # Clase Central (Principal para la práctica)
             import traceback
             traceback.print_exc()
 
-    def procesar_linea_monitor(self, linea: str): # Procesar comando recibido del monitor
+    def procesar_linea_monitor(self, linea: str, cliente=None): # Procesar comando recibido del monitor
         partes = (linea or "").strip().split() # Divido la línea en partes
         if len(partes) < 2: # Si no hay al menos 2 partes, es un comando inválido
             print(f"[CENTRAL] Comando inválido del monitor: {linea!r}")
@@ -543,7 +573,7 @@ class EV_Central: # Clase Central (Principal para la práctica)
 
         comando, cp_id = partes[0].upper(), partes[1] # Obtengo el comando y el cp_id
         ahora = time.strftime("%H:%M:%S")
-
+        
         with self._lock:
             self.cps.setdefault(cp_id, {"estado": EST_DESC}) # Aseguro que el CP esté registrado
 
@@ -560,6 +590,44 @@ class EV_Central: # Clase Central (Principal para la práctica)
                     self.productor.send(f"comandos_cp_{cp_id}", orden) # Envio la orden al topic del CP
                     self.productor.flush()
                     print(f"[CENTRAL] Comando DESCONECTADO enviado al CP {cp_id}")
+
+            elif comando == "AUTH":
+                # Formato esperado: AUTH <cp_id_bd> <credencial>
+                if len(partes) < 3:
+                    msg = "AUTH_ERROR faltan_parametros\n"
+                    if cliente:
+                        cliente.sendall(msg.encode())
+                    print(f"[CENTRAL] AUTH inválido (faltan params): {linea!r}")
+                    return
+
+                credencial = partes[2]
+
+                # 1) Validar en BD: cp existe, credencial coincide, activo=1
+                ok = self.validar_cp_en_bd(cp_id, credencial)
+
+                if ok:
+                    # 2) Generar clave simétrica (por ahora la dejamos como texto hexadecimal)
+                    clave = secrets.token_hex(16)  # 32 hex chars (=16 bytes)
+
+                    # 3) Marcar que tiene clave (si tienes esa columna)
+                    self.marcar_cp_con_clave(cp_id)
+
+                    # 4) Guardar la clave en memoria (opcional pero útil)
+                    with self._lock:
+                        self.cps.setdefault(cp_id, {})["clave_simetrica"] = clave
+
+                    # 5) Responder al CP
+                    msg = f"AUTH_OK {clave}\n"
+                    if cliente:
+                        cliente.sendall(msg.encode())
+                    print(f"[{ahora}] [CENTRAL] AUTH OK para CP {cp_id}")
+                else:
+                    msg = "AUTH_ERROR credencial_invalida_o_inactivo\n"
+                    if cliente:
+                        cliente.sendall(msg.encode())
+                    print(f"[{ahora}] [CENTRAL] AUTH ERROR para CP {cp_id}")
+
+
             elif comando == "EN_AVERIA": # Si recibo el comando "EN_AVERIA"
                 if self.cps[cp_id]["estado"] != EST_DESC: # Si el estado no es DESCONECTADO
                     self.cps[cp_id]["estado"] = EST_AVERIA # Actualizo el estado del cp a AVERIA
@@ -604,7 +672,7 @@ class EV_Central: # Clase Central (Principal para la práctica)
                             if not linea: # si la línea está vacía
                                 continue
                             # sino esta vacía, proceso la línea
-                            self.procesar_linea_monitor(linea) # Proceso la línea recibida
+                            self.procesar_linea_monitor(linea,cliente) # Proceso la línea recibida
                             cliente.sendall(b"ACK\n") # Envio ACK al monitor
                         except Exception: # Si hay un error al procesar la línea
                             cliente.sendall(b"NACK\n") # Envio NACK al monitor

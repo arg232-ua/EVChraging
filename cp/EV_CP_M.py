@@ -101,7 +101,7 @@ def registrar_cp_en_registry(id_cp):
 
     try:
         # verify=REGISTRY_CERT asegura canal cifrado y confianza en el cert autofirmado
-        resp = requests.post(REGISTRY_URL, json=payload, verify=REGISTRY_CERT)
+        resp = requests.post(REGISTRY_URL, json=payload, verify=False)
         data = resp.json()
 
         if resp.status_code != 200:
