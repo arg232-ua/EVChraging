@@ -108,6 +108,39 @@ class WeatherControlOffice:
         monitor_thread = threading.Thread(target = monitor, daemon = True)
         monitor_thread.start()
         return monitor_thread
+    
+    def cambiar_ciudad_cp(self, cp_id, nueva_ciudad, nuevo_pais=None): # Camba¡iar la ciudad de un CP
+        for loc in self.localizaciones:
+            if loc["cp_id"] == str(cp_id):
+                ciudad_anterior = loc["city"]
+                pais_anterior = loc["country"]
+                
+                loc["city"] = nueva_ciudad
+                if nuevo_pais:
+                    loc["country"] = nuevo_pais
+                
+                self.guardar_localizaciones()
+                
+                print(f"[INFO] CP {cp_id}: Ciudad cambiada de {ciudad_anterior},{pais_anterior} a {nueva_ciudad},{loc['country']}")
+                return True
+        
+        print(f"[ERROR] CP {cp_id} no encontrado en localizaciones")
+        return False
+    
+    def listar_cps(self): # Listar CPs monitorizados
+        if not self.localizaciones:
+            print("[INFO] No hay CPs configurados para monitoreo")
+            return
+        
+        print("\nCPs MONITOREADOS")
+        
+        for loc in self.localizaciones:
+            # Obtener temperatura actual si está disponible
+            temp_actual = self.ultimas_temperaturas.get(loc["cp_id"], "No medida")
+            alerta = "[Localización en alerta] " if loc["cp_id"] in self.localizaciones_alertadas else "  "
+            
+            print(f"{alerta}CP {loc['cp_id']}: {loc['city']}, {loc['country']}")
+            print(f"Temperatura actual: {temp_actual}°C")
 
 def main():
     ev_w = WeatherControlOffice()
@@ -116,7 +149,9 @@ def main():
     print("2. Añadir nueva localización")
     print("3. Ver localizaciones actuales")
     print("4. Verificar temperatura ahora")
-    print("5. Salir")
+    print("5. Cambiar ciudad de un CP")
+    print("6. Listar CPs con detalles")
+    print("7. Salir")
 
     ev_w.comenzar_monitorizacion()
 
@@ -138,6 +173,19 @@ def main():
         elif opcion == "4":
             ev_w.verificar_localizaciones()
         elif opcion == "5":
+            cp_id = input("Ingrese el ID del CP a modificar:").strip()
+            nueva_ciudad = input("Ingrese la nueva ciudad:").strip()
+            nuevo_pais = input("Ingrese el nuevo país (Enter para mantener actual):").strip()
+            
+            if nuevo_pais == "":
+                nuevo_pais = None
+            if ev_w.cambiar_ciudad_cp(cp_id, nueva_ciudad, nuevo_pais):
+                print(f"Ciudad cambiada para CP {cp_id}")
+            else:
+                print(f"No se pudo cambiar la ciudad para CP {cp_id}")
+        elif opcion == "6":
+            ev_w.listar_cps()
+        elif opcion == "7":
             print("Saliendo...")
             break
         else:

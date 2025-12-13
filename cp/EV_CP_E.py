@@ -216,6 +216,31 @@ class EV_CP:
         except Exception as e:
             print(f"[EV_CP_E] Error en _bucle_carga: {e}")
 
+    def notificar_cambio_estado_driver(self, driver_id, nuevo_estado): # Notificar a central que el driver cambia de estado
+        if not self.productor:
+            print("[EV_CP_E] Productor Kafka no disponible. No se puede notificar cambio de estado del driver.")
+            return False
+        
+        mensaje = {
+            'type': 'CAMBIAR_ESTADO_DRIVER',
+            'driver_id': driver_id,
+            'nuevo_estado': nuevo_estado,
+            'cp_id': self.cp_id,
+            'timestamp': time.time(),
+            'origen': f'CP_{self.cp_id}'
+        }
+        
+        try:
+            # Enviar al topic que escucha la central para cambios de estado
+            topic_estado_driver = "cambios_estado_driver"
+            self.productor.send(topic_estado_driver, key=driver_id, value=mensaje)
+            self.productor.flush()
+            print(f"[EV_CP_E] Notificado cambio de estado del driver {driver_id} a: {nuevo_estado}")
+            return True
+        except Exception as e:
+            print(f"[EV_CP_E] Error notificando cambio de estado del driver: {e}")
+            return False
+
     #Inicia el proceso de carga
     def iniciar_carga(self, driver_id: str, potencia_kw: float = None):
         with self._lock_carga:
@@ -240,6 +265,9 @@ class EV_CP:
             self.energia_kwh = 0.0
             self.importe_eur = 0.0
             self._stop_carga.clear()
+        
+        # Enviar notificación especial a la central sobre el cambio de estado del driver
+        self.notificar_cambio_estado_driver(driver_id, f"Suministrando en CP {self.cp_id}")
         
         self.enviar_estado("SUMINISTRANDO", motivo="Inicio de carga")
         self._hilo_carga = threading.Thread(target=self._bucle_carga, daemon=True)

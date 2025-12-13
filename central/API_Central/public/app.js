@@ -108,7 +108,7 @@ async function fetchCPs() {
 
 async function fetchDrivers() {
     try {
-        const response = await fetch(`${API_BASE_URL}/usuarios`);
+        const response = await fetch(`${API_BASE_URL}/conductores-con-estado`);
         if (response.ok) {
             appState.drivers = await response.json();
             renderDrivers();
@@ -223,11 +223,17 @@ function renderDrivers() {
     appState.drivers.forEach(driver => {
         const row = document.createElement('tr');
         
-        // Determinar estado del driver basado en actividad reciente
-        const lastActive = new Date(driver.ultima_actividad || Date.now());
-        const minutesAgo = (Date.now() - lastActive.getTime()) / (1000 * 60);
-        const status = minutesAgo < 5 ? 'ACTIVO' : 'INACTIVO';
-        const statusClass = status === 'ACTIVO' ? 'status-ACTIVADO' : 'status-DESCONECTADO';
+        // Usar el estado directamente de la BD
+        const estado = driver.estado || 'Desconectado';
+        let statusClass = 'status-DESCONECTADO';
+        
+        if (estado.includes('Activo')) {
+            statusClass = 'status-ACTIVADO';
+        } else if (estado.includes('Suministrando')) {
+            statusClass = 'status-SUMINISTRANDO';
+        } else if (estado.includes('Esperando')) {
+            statusClass = 'status-PARADO';
+        }
         
         row.innerHTML = `
             <td>${driver.id_conductor || driver.id}</td>
@@ -235,7 +241,7 @@ function renderDrivers() {
             <td>${driver.apellidos || 'N/A'}</td>
             <td>${driver.email_conductor || driver.correo || 'N/A'}</td>
             <td>${driver.telefono_conductor || driver.telefono || 'N/A'}</td>
-            <td><span class="cp-status ${statusClass}">${status}</span></td>
+            <td><span class="cp-status ${statusClass}">${estado}</span></td>
         `;
         
         elements.driversTableBody.appendChild(row);

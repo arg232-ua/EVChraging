@@ -15,6 +15,7 @@ TOPIC_ESTADO    = "estado_cp"
 TOPIC_RESP_DRIVER = "respuestas_conductor"
 TOPIC_SOLICITUD   = "CARGA_SOLICITADA"
 TOPIC_VERIF       = "conductor"
+TOPIC_CAMBIOS_ESTADO_DRIVER = "cambios_estado_driver"
 
 # ESTADOS CP
 EST_ACTIVO = "ACTIVADO"
@@ -345,128 +346,151 @@ class EV_Central: # Clase Central (Principal para la práctica)
                 self.productor.flush()
                 print(f"[CENTRAL] Enviados {len(cps_disponibles)} CPs disponibles a driver {driver_id}")
 
-    def escuchar_peticiones_verificacion(self): # Escuchar peticiones de verificación de conductores
-        consumidor = obtener_consumidor('conductor', 'central-verificaciones', self.servidor_kafka) # Consumidor Kafka con topic 'conductor'
+    def escuchar_peticiones_verificacion(self):
+        consumidor = obtener_consumidor('conductor', 'central-verificaciones', self.servidor_kafka)
         print("CENTRAL: Escuchando peticiones de Verificación de Conductor...")
 
-        for msg in consumidor: # Bucle para escuchar mensajes
-            peticion = msg.value # Guardo el valor del mensaje
+        for msg in consumidor:
+            peticion = msg.value
 
-            if peticion.get('type') == 'VERIFICAR_DRIVER': # Si el tipo es: 'VERIFICAR_DRIVER'
-                driver_id = peticion.get('driver_id') # Guardi el driver_id
+            if peticion.get('type') == 'VERIFICAR_DRIVER':
+                driver_id = peticion.get('driver_id')
                 print(f"Verificando si el conductor {driver_id} esta registrado en la Base de Datos...")
                 
-                respuesta = { # Creo la respuesta a enviar al driver
+                existe = self.verifico_driver(driver_id)
+                
+                if existe:
+                    # Cuando el driver se verifica, cambiar estado a "Activo"
+                    self.actualizar_estado_driver(driver_id, "Activo")
+                    # Registrar en auditoría
+                    self.registrar_auditoria(f"Driver-{driver_id}", "login_driver", f"Driver {driver_id} se ha logueado correctamente")
+                
+                respuesta = {
                     'driver_id': driver_id,
-                    'exists': self.verifico_driver(driver_id)
+                    'exists': existe
                 }
                 time.sleep(3)
-                self.productor.send('respuestas_conductor', respuesta) # Envio la respuesta al topic 'respuestas_conductor' perteneciente al conductr
+                self.productor.send('respuestas_conductor', respuesta)
                 self.productor.flush()
                 print(f"Mensaje enviado al conductor: {driver_id}")
 
-    def escuchar_peticiones_recarga(self): # Escuchar peticiones de recarga
-        consumidor = obtener_consumidor('CARGA_SOLICITADA', 'central-recargas', self.servidor_kafka) # Consumidor Kafka con topic 'CARGA_SOLICITADA'
+    def escuchar_peticiones_recarga(self):
+        consumidor = obtener_consumidor('CARGA_SOLICITADA', 'central-recargas', self.servidor_kafka)
         print("CENTRAL: Escuchando peticiones de Recarga...")
 
-        for msg in consumidor: # Bucle para escuchar mensajes
+        for msg in consumidor:
             peticion = msg.value
 
-            if peticion.get('type') == 'SOLICITAR_RECARGA': # Si el tipo es: 'SOLICITAR_RECARGA'
-                driver_id = peticion.get('driver_id') # Guardo el driver_id
-                cp_id = peticion.get('cp_id') # Guardo el cp_id
-                print(f"El conductor: {driver_id} ha solicitado una recarga en el CP: {cp_id}") # Imprimo mensaje
+            if peticion.get('type') == 'SOLICITAR_RECARGA':
+                driver_id = peticion.get('driver_id')
+                cp_id = peticion.get('cp_id')
                 
-                cp_existe = self.verifico_cp(cp_id) # Verifico si el CP existe en la BD
+                # REGISTRAR EN AUDITORÍA: Driver solicita suministro
+                self.registrar_auditoria(f"Driver-{driver_id}", "solicitud_carga",
+                                        f"Driver {driver_id} solicitando suministro en CP {cp_id}")
+                
+                print(f"El conductor: {driver_id} ha solicitado una recarga en el CP: {cp_id}")
+                
+                cp_existe = self.verifico_cp(cp_id)
 
-                if not cp_existe: # Si el CP no existe
-                    resp = { # Creo la respuesta a enviar al driver informando del error
+                if not cp_existe:
+                    resp = {
                         "driver_id": driver_id,
                         "cp_id": cp_id,
                         "confirmacion": False,
                         "mensaje": f"CP {cp_id} no disponible."
                     }
+                    # REGISTRAR EN AUDITORÍA: Solicitud denegada
+                    self.registrar_auditoria("CENTRAL", "carga_denegada", f"Solicitud de carga denegada para el Driver {driver_id} en CP {cp_id}")
                     time.sleep(3)
-                    self.productor.send(TOPIC_RESP_DRIVER, resp) # Envio la respuesta de recarga denegada
+                    self.productor.send(TOPIC_RESP_DRIVER, resp)
                     self.productor.flush()
                     print(f"[CENTRAL] Recarga DENEGADA en {cp_id} para driver {driver_id}")
                     continue
 
-                # En caso de que el CP exista, verifico su estado
-                with self._lock: # Bloqueo para sincronización
-                    estado_cp = self.cps.get(cp_id, {}).get("estado", EST_DESC) # Obtengo el estado del CP
+                with self._lock:
+                    estado_cp = self.cps.get(cp_id, {}).get("estado", EST_DESC)
                     print(f"[CENTRAL] Estado del CP {cp_id}: {estado_cp}")
 
-                if estado_cp == EST_ACTIVO: # Si el CP está ACTIVO
-                    cmd = { # Creo el comando para iniciar la cargaq
+                if estado_cp == EST_ACTIVO:
+                    # Cambiar estado del driver a "Esperando a CP X"
+                    self.actualizar_estado_driver(driver_id, f"Esperando a CP {cp_id}")
+                    
+                    cmd = {
                         "cp_id": cp_id,
                         "cmd": "INICIAR_CARGA",
                         "meta": {"driver_id": driver_id}
                     }
-                    self.productor.send(TOPIC_COMANDOS, cmd) # envio el comando al topic de comandos
+                    self.productor.send(TOPIC_COMANDOS, cmd)
                     self.productor.flush()
 
-                    with self._lock: # Bloqueo para sincronización
-                        self.cps.setdefault(cp_id, {})["estado"] = EST_SUM # Actualizo el estado del CP a SUMINISTRANDO
-                        self.driver_por_cp[cp_id] = driver_id # Asigno el driver al CP
-                        self.cp_por_driver[driver_id] = cp_id # Asigno el CP al driver
+                    with self._lock:
+                        self.cps.setdefault(cp_id, {})["estado"] = EST_SUM
+                        self.driver_por_cp[cp_id] = driver_id
+                        self.cp_por_driver[driver_id] = cp_id
 
-                    resp = { # Creo la respuesta a enviar al driver informando de la autorización
+                    resp = {
                         "driver_id": driver_id,
                         "cp_id": cp_id,
                         "confirmacion": True,
                         "mensaje": f"CP {cp_id} disponible. Iniciando suministro..."
                     }
+                    # REGISTRAR EN AUDITORÍA: Suministro concedido
+                    self.registrar_auditoria("CENTRAL", "suministro_concedido",
+                                            f"Suministro concedido para Driver {driver_id} en CP {cp_id}")
                     time.sleep(3)
-                    self.productor.send(TOPIC_RESP_DRIVER, resp) # Envio la respuesta de recarga autorizada al driver
+                    self.productor.send(TOPIC_RESP_DRIVER, resp)
                     self.productor.flush()
                     print(f"[CENTRAL] Recarga AUTORIZADA en {cp_id} para driver {driver_id}")
-                else: # si el CP no está ACTIVO
-                    resp = { # Creo la respuesta a enviar al driver informando de la denegación
+                else:
+                    resp = {
                         "driver_id": driver_id,
                         "cp_id": cp_id,
                         "confirmacion": False,
                         "mensaje": f"CP {cp_id} no disponible (estado actual: {estado_cp})."
                     }
-                    self.productor.send(TOPIC_RESP_DRIVER, resp) # Envio la respuesta de recarga denegada al driver
+                    # REGISTRAR EN AUDITORÍA: Solicitud denegada
+                    self.registrar_auditoria("CENTRAL", "carga_denegada",
+                                            f"Solicitud de carga denegada para el Driver {driver_id} en CP {cp_id}")
+                    self.productor.send(TOPIC_RESP_DRIVER, resp)
                     self.productor.flush()
                     print(f"[CENTRAL] Recarga DENEGADA en {cp_id} para driver {driver_id} (estado: {estado_cp})")
 
-                print(f"Mensaje enviado al conductor: {driver_id}.") # Confirmación
+                print(f"Mensaje enviado al conductor: {driver_id}.")
 
-    def escuchar_estados_cp(self): # Escuchar estados de los CPs
-        consumidor = obtener_consumidor(TOPIC_ESTADO, 'central-estados', self.servidor_kafka) # Consumidor Kafka con topic 'estado_cp'
+    def escuchar_estados_cp(self):
+        consumidor = obtener_consumidor(TOPIC_ESTADO, 'central-estados', self.servidor_kafka)
         print("[CENTRAL] Escuchando estados de CPs...")
 
         for msg in consumidor:
-            estado_msg = msg.value # Guardo el valor del mensaje
-            cp_id = estado_msg.get("cp_id") # Obtengo el cp_id
-            estado = estado_msg.get("estado") # Obtengo el estado
+            estado_msg = msg.value
+            cp_id = estado_msg.get("cp_id")
+            estado = estado_msg.get("estado")
             
-            if not cp_id or not estado: # Si falta cp_id o estado, ignoro el mensaje
+            if not cp_id or not estado:
                 continue
 
-            if estado_msg.get("tipo") == "DESCONEXION_CP": # Si el tipo es 'DESCONEXION_CP', manejo la desconexión
-                self.manejar_desconexion_cp(cp_id) # Manejo la desconexión del CP
+            if estado_msg.get("tipo") == "DESCONEXION_CP":
+                self.manejar_desconexion_cp(cp_id)
                 continue
 
-            print(f"[CENTRAL] Actualizando estado CP {cp_id}: {estado}") # Confirmación
+            print(f"[CENTRAL] Actualizando estado CP {cp_id}: {estado}")
 
-            with self._lock: # Bloqueo para sincronización
-                if cp_id not in self.cps: # Si el CP no está registrado, lo añado
-                    self.cps[cp_id] = {} # Inicializo el CP
-                self.cps[cp_id]["estado"] = estado # Actualizo el estado del CP
+            with self._lock:
+                if cp_id not in self.cps:
+                    self.cps[cp_id] = {}
+                self.cps[cp_id]["estado"] = estado
                 self.cps[cp_id]["ultima_actualizacion"] = time.time()
 
-            self.actualizar_estado_cp_en_bd(cp_id, estado) # Actualizo el estado en la BD
+            self.actualizar_estado_cp_en_bd(cp_id, estado)
 
-            if estado_msg.get("fin_carga", False): # Si el mensaje indica fin de carga
-                driver_id = estado_msg.get("driver_id") # Obtengo el driver_id
-                energia_kwh = estado_msg.get("energia_kwh", 0) # Obtengo la energía suministrada
-                importe_eur = estado_msg.get("importe_eur", 0) # Obtengo el importe de la recarga
+            if estado_msg.get("fin_carga", False):
+                driver_id = estado_msg.get("driver_id")
+                energia_kwh = estado_msg.get("energia_kwh", 0)
+                importe_eur = estado_msg.get("importe_eur", 0)
                 
-                if driver_id: # Si hay driver_id
-                    ticket = { # Creo el ticket de recarga
+                if driver_id:
+                    ticket = {
                         "driver_id": driver_id,
                         "cp_id": cp_id,
                         "estado_carga": "recarga_finalizada",
@@ -474,14 +498,21 @@ class EV_Central: # Clase Central (Principal para la práctica)
                         "importe_eur": importe_eur,
                         "mensaje": f"Recarga finalizada en {cp_id}. Energía: {energia_kwh:.2f} kWh, Importe: {importe_eur:.2f} €"
                     }
-                    self.cps.setdefault(cp_id, {})["estado"] = EST_ACTIVO # Actualizo el estado del CP a ACTIVO
-                    self.productor.send(TOPIC_RESP_DRIVER, ticket) # Envio el ticket al driver
+                    self.cps.setdefault(cp_id, {})["estado"] = EST_ACTIVO
+                    self.productor.send(TOPIC_RESP_DRIVER, ticket)
                     self.productor.flush()
-                    print(f"[CENTRAL] Ticket enviado a driver {driver_id} (CP {cp_id})") # Confirmación
+                    print(f"[CENTRAL] Ticket enviado a driver {driver_id} (CP {cp_id})")
+                    
+                    # REGISTRAR EN AUDITORÍA: Fin del suministro
+                    self.registrar_auditoria(f"CP-{cp_id}", "fin_suministro",
+                                            f"Fin del suministro del Driver {driver_id} en el CP {cp_id}")
+                    
+                    # Cambiar estado del driver a "Activo"
+                    self.actualizar_estado_driver(driver_id, "Activo")
 
-                    with self._lock: # Bloqueo para sincronización
-                        self.driver_por_cp.pop(cp_id, None) # Limpio las asignaciones
-                        self.cp_por_driver.pop(driver_id, None) # Limpio las asignaciones
+                    with self._lock:
+                        self.driver_por_cp.pop(cp_id, None)
+                        self.cp_por_driver.pop(driver_id, None)
 
     def escuchar_registros_cp(self): # Escuchar registros de nuevos CPs
         consumidor = obtener_consumidor(TOPIC_REGISTROS, 'central-registros', self.servidor_kafka) # Consumidor Kafka con topic 'registros_cp'
@@ -746,6 +777,68 @@ class EV_Central: # Clase Central (Principal para la práctica)
         except Exception as e:
             print(f"[CENTRAL] ERROR al enviar comando por alerta: {e}")
 
+    def actualizar_estado_driver(self, driver_id, nuevo_estado): # Acutaliza el estado de un conductor en BBDD
+        conexion = self.obtener_conexion_bd()
+        if not conexion:
+            return False
+        
+        try:
+            cursor = conexion.cursor()
+            consulta = "UPDATE conductor SET estado = %s WHERE id_conductor = %s"
+            cursor.execute(consulta, (nuevo_estado, driver_id))
+            conexion.commit()
+            cursor.close()
+            conexion.close()
+            print(f"[CENTRAL] Estado de conductor {driver_id} actualizado a: {nuevo_estado}")
+            return True
+        except Exception as e:
+            print(f"[CENTRAL] Error actualizando estado de conductor: {e}")
+            conexion.close()
+            return False
+
+    def registrar_auditoria(self, ip_origen, accion, descripcion): # Registrar eventi en auditoria
+        conexion = self.obtener_conexion_bd()
+        if not conexion:
+            return False
+        
+        try:
+            cursor = conexion.cursor()
+            consulta = "INSERT INTO auditoria (fecha_hora, ip_origen, accion, descripcion) VALUES (NOW(), %s, %s, %s)"
+            cursor.execute(consulta, (ip_origen, accion, descripcion))
+            conexion.commit()
+            cursor.close()
+            conexion.close()
+            print(f"[AUDITORIA] Registrado: {accion} - {descripcion}")
+            return True
+        except Exception as e:
+            print(f"[AUDITORIA] Error registrando auditoría: {e}")
+            conexion.close()
+            return False
+
+    def escuchar_cambios_estado_driver(self): # Escuchar cambios de estado de drivers
+        consumidor = obtener_consumidor(TOPIC_CAMBIOS_ESTADO_DRIVER, 'central-estados-driver', self.servidor_kafka)
+        print("[CENTRAL] Escuchando cambios de estado de drivers...")
+        
+        for msg in consumidor:
+            cambio = msg.value
+            driver_id = cambio.get('driver_id')
+            nuevo_estado = cambio.get('nuevo_estado')
+            cp_id = cambio.get('cp_id')
+            
+            if not driver_id or not nuevo_estado:
+                continue
+            
+            print(f"[CENTRAL] Recibido cambio de estado para driver {driver_id}: {nuevo_estado}")
+            
+            # Actualizar estado en BD
+            if self.actualizar_estado_driver(driver_id, nuevo_estado):
+                print(f"[CENTRAL] Estado del driver {driver_id} actualizado a: {nuevo_estado}")
+                
+                # Registrar en auditoría si es suministro
+                if "Suministrando" in nuevo_estado:
+                    self.registrar_auditoria(f"CP-{cp_id}", "inicio_suministro",
+                                            f"Driver {driver_id} iniciando suministro en CP {cp_id}")
+
     def iniciar_servicios(self): # Iniciar todos los servicios de la central
         print("Iniciando todos los servicios de la central...")
         
@@ -757,6 +850,7 @@ class EV_Central: # Clase Central (Principal para la práctica)
         hilo_monitores = threading.Thread(target=self.servidor_monitores, daemon=True) # Hilo para atender monitores
         hilo_consultas = threading.Thread(target=self.escuchar_consultas_cps, daemon=True) # Hilo para consultas de CPs disponibles
         hilo_alertas = threading.Thread(target=self.escuchar_alertas_meteorologicas, daemon=True)
+        hilo_estados_driver = threading.Thread(target=self.escuchar_cambios_estado_driver, daemon=True)
         
         # Iniciar todos los hilos
         hilo_verificaciones.start()
@@ -766,7 +860,8 @@ class EV_Central: # Clase Central (Principal para la práctica)
         hilo_monitores.start()
         hilo_consultas.start()
         hilo_alertas.start()
-        
+        hilo_estados_driver.start()
+
         print("Todos los servicios iniciados. La central está operativa.") # Confirmación
 
     def mostrar_menu_central(self): # Mostrar el menú de la central en terminal
@@ -946,6 +1041,19 @@ def main(): # Función main
     def notificar_desconexion_central(): # Notificar a todos los CPs y drivers sobre la desconexión de la central
         print("\n[CENTRAL] Notificando desconexión a todos los componentes...")
         
+        # Cambiar estado de todos los conductores a "Desconectado"
+        conexion = ev_central.obtener_conexion_bd()
+        if conexion:
+            try:
+                cursor = conexion.cursor()
+                cursor.execute("UPDATE conductor SET estado = 'Desconectado'")
+                conexion.commit()
+                cursor.close()
+                conexion.close()
+                print("[CENTRAL] Todos los conductores marcados como Desconectados")
+            except Exception as e:
+                print(f"[CENTRAL] Error actualizando estados de conductores: {e}")
+
         # Notificar a todos los CPs registrados
         for cp_id in ev_central.cps.keys(): # Para cada CP registrado
             mensaje_desconexion = { # Creo el mensaje de desconexión

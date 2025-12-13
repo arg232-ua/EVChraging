@@ -296,6 +296,25 @@ centralSD.get("/usuarios", (request, response) => {
     }); 
 });
 
+// Obtener todos los conductores con su estado
+centralSD.get("/conductores-con-estado", (request, response) => {
+    console.log('📡 Solicitud GET /conductores-con-estado recibida');
+    
+    const sql = 'SELECT id_conductor, nombre, apellidos, email_conductor, telefono_conductor, estado FROM conductor ORDER BY id_conductor';
+    
+    connection.query(sql, (error, resultado) => {
+        if (error) {
+            console.error('❌ Error en /conductores-con-estado:', error.message);
+            return response.status(500).json({ 
+                error: 'Error en la base de datos', 
+                details: error.message 
+            });
+        }
+        console.log(`✅ Conductores con estado obtenidos: ${resultado.length} registros`);
+        response.json(resultado);
+    });
+});
+
 centralSD.use((req, res, next) => {
     const error = new Error('Ruta no encontrada');
     error.status = 404;
