@@ -59,6 +59,17 @@ def ping_engine(engine_addr, cp_id, timeout=2.0):
 def enviar_central(central_addr, texto, timeout=1.0):
     return enviar_linea(central_addr, texto, timeout=timeout)
 
+def enviar_auth_central(central_addr, texto, timeout=2.0):
+    host, port = parse_host_port(central_addr)
+    try:
+        with socket.create_connection((host, port), timeout=timeout) as s:
+            s.sendall((texto.strip() + "\n").encode("utf-8"))
+            s.settimeout(timeout)
+            resp = s.recv(1024).decode("utf-8").strip()
+            return resp
+    except Exception as e:
+        print(f"[EV_CP_M] Error enviando AUTH a Central: {e}")
+        return None
 
 # ==========================
 #  FUNCIONES REGISTRO / CRED
@@ -226,12 +237,27 @@ def main():
         if not registrar_cp_en_registry(cp_id):
             print("[EV_CP_M] Registro en EV_Registry FALLIDO. No se puede iniciar el CP.")
             sys.exit(1)
-    else:
-        print(f"[EV_CP_M] Credencial encontrada en {CRED_FILE}: {cred['credencial']}")
+        cred = cargar_credencial()
 
-    # 2) HELLO a la CENTRAL
-    ok = enviar_central(central_addr, f"HELLO {cp_id}")
-    print(f"[EV_CP_M] HELLO Central -> {'OK' if ok else 'ERROR'}")
+    id_cp_bd = str(cred["id_cp"])
+    credencial = cred["credencial"]
+    print(f"[EV_CP_M] Credencial cargada. ID_CP_BD={id_cp_bd}")
+
+    # 2) AUTH a CENTRAL
+    auth_msg = f"AUTH {id_cp_bd} {credencial}"
+    resp = enviar_auth_central(central_addr, f"AUTH {id_cp_bd} {credencial}")
+    print(f"[EV_CP_M] Respuesta Central: {resp}")
+
+    if resp and resp.startswith("AUTH_OK"):
+        _, clave = resp.split(maxsplit=1)
+        with open("clave_simetrica.json", "w") as f:
+            json.dump({"clave_simetrica": clave}, f)
+        print("[EV_CP_M] Autenticación correcta. Clave simétrica guardada.")
+    else:
+        print("[EV_CP_M] Autenticación FALLIDA con Central.")
+        sys.exit(1)
+
+
 
     # 3) Lanzar hilo de monitorización automática
     hilo_mon = threading.Thread(
