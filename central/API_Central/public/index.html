@@ -18,108 +18,217 @@
             </div>
         </header>
 
-        <!-- Panel Principal -->
-        <main>
-            <!-- Sección de Puntos de Carga (CPs) -->
-            <section class="dashboard-section">
-                <h2><i class="fas fa-plug"></i> Puntos de Carga (CPs)</h2>
-                <div class="controls">
-                    <button id="refresh-cps" class="btn btn-primary">
-                        <i class="fas fa-sync-alt"></i> Actualizar CPs
-                    </button>
-                    <div class="filter-controls">
-                        <select id="filter-status">
-                            <option value="all">Todos los estados</option>
-                            <option value="ACTIVADO">Activos</option>
-                            <option value="PARADO">Parados</option>
-                            <option value="SUMINISTRANDO">Suministrando</option>
-                            <option value="AVERIA">Avería</option>
-                            <option value="DESCONECTADO">Desconectados</option>
-                        </select>
+        <!-- Navegación por pestañas -->
+        <nav class="nav-tabs">
+            <div class="tab active" data-tab="dashboard">
+                <i class="fas fa-tachometer-alt"></i> Dashboard
+            </div>
+            <div class="tab" data-tab="weather">
+                <i class="fas fa-cloud-sun"></i> Monitor Meteorológico
+            </div>
+            <div class="tab" data-tab="charging-points">
+                <i class="fas fa-plug"></i> Puntos de Carga
+            </div>
+            <div class="tab" data-tab="drivers">
+                <i class="fas fa-users"></i> Conductores
+            </div>
+            <div class="tab" data-tab="alerts">
+                <i class="fas fa-exclamation-triangle"></i> Alertas
+            </div>
+            <div class="tab" data-tab="audit">
+                <i class="fas fa-clipboard-list"></i> Auditoría
+            </div>
+        </nav>
+
+        <!-- Contenido de las pestañas -->
+        <main id="tab-content">
+            <!-- Pestaña 1: Dashboard -->
+            <div id="dashboard-tab" class="tab-content active">
+                <!-- Panel de Estado del Sistema -->
+                <section class="dashboard-section">
+                    <h2><i class="fas fa-heartbeat"></i> Estado del Sistema</h2>
+                    <div class="status-grid">
+                        <div class="status-item">
+                            <span class="status-label">API Central</span>
+                            <span id="api-central-status" class="status-badge online">Online</span>
+                        </div>
+                        <div class="status-item">
+                            <span class="status-label">Base de Datos</span>
+                            <span id="db-status" class="status-badge online">Conectada</span>
+                        </div>
+                        <div class="status-item">
+                            <span class="status-label">Total CPs</span>
+                            <span id="total-cps" class="status-value">0</span>
+                        </div>
+                        <div class="status-item">
+                            <span class="status-label">CPs Activos</span>
+                            <span id="active-cps" class="status-value">0</span>
+                        </div>
+                        <div class="status-item">
+                            <span class="status-label">Alertas Activas</span>
+                            <span id="active-alerts" class="status-value">0</span>
+                        </div>
+                    </div>
+                </section>
+
+                <!-- Vista previa rápida -->
+                <div class="quick-view">
+                    <div class="quick-view-item">
+                        <h3><i class="fas fa-plug"></i> CPs Recientes</h3>
+                        <div id="quick-cps" class="quick-content">
+                            <!-- Se cargarán dinámicamente -->
+                        </div>
+                    </div>
+                    <div class="quick-view-item">
+                        <h3><i class="fas fa-exclamation-triangle"></i> Últimas Alertas</h3>
+                        <div id="quick-alerts" class="quick-content">
+                            <!-- Se cargarán dinámicamente -->
+                        </div>
+                    </div>
+                    <div class="quick-view-item">
+                        <h3><i class="fas fa-history"></i> Últimos Eventos</h3>
+                        <div id="quick-audit" class="quick-content">
+                            <!-- Se cargarán dinámicamente -->
+                        </div>
                     </div>
                 </div>
-                <div id="cps-container" class="cards-container">
-                    <!-- Los CPs se cargarán aquí dinámicamente -->
-                </div>
-            </section>
+            </div>
 
-            <!-- Sección de Conductores (Drivers) -->
-            <section class="dashboard-section">
-                <h2><i class="fas fa-users"></i> Conductores</h2>
-                <div class="controls">
-                    <button id="refresh-drivers" class="btn btn-primary">
-                        <i class="fas fa-sync-alt"></i> Actualizar Conductores
-                    </button>
-                </div>
-                <div id="drivers-container" class="table-container">
-                    <table>
-                        <thead>
-                            <tr>
-                                <th>ID</th>
-                                <th>Nombre</th>
-                                <th>Apellidos</th>
-                                <th>Email</th>
-                                <th>Teléfono</th>
-                                <th>Estado</th>
-                            </tr>
-                        </thead>
-                        <tbody id="drivers-table-body">
-                            <!-- Los conductores se cargarán aquí -->
-                        </tbody>
-                    </table>
-                </div>
-            </section>
+            <!-- Pestaña 2: Monitor Meteorológico -->
+            <div id="weather-tab" class="tab-content">
+                <section class="dashboard-section">
+                    <div class="section-header">
+                        <h2><i class="fas fa-cloud-sun"></i> Monitor Meteorológico (EV_W)</h2>
+                        <button id="refresh-weather" class="btn btn-primary">
+                            <i class="fas fa-sync-alt"></i> Actualizar
+                        </button>
+                        <button id="add-location" class="btn btn-success">
+                            <i class="fas fa-plus-circle"></i> Añadir Localización
+                        </button>
+                    </div>
+                    
+                    <div class="weather-controls">
+                        <button id="simulate-alert" class="btn btn-warning">
+                            <i class="fas fa-snowflake"></i> Simular Alerta
+                        </button>
+                        <button id="remove-alert" class="btn btn-success">
+                            <i class="fas fa-sun"></i> Quitar Alerta
+                        </button>
+                        <button id="change-location" class="btn btn-secondary">
+                            <i class="fas fa-map-marker-alt"></i> Cambiar Ciudad CP
+                        </button>
+                    </div>
+                    
+                    <div class="weather-info">
+                        <div class="weather-card">
+                            <div class="weather-icon">
+                                <i class="fas fa-satellite"></i>
+                            </div>
+                            <div class="weather-content">
+                                <h3>Servicio Meteorológico Activo</h3>
+                                <p>Monitoreando localizaciones en tiempo real</p>
+                                <div class="weather-stats">
+                                    <span><i class="fas fa-clock"></i> Intervalo: 4 segundos</span>
+                                    <span><i class="fas fa-map-marker"></i> Localizaciones: <span id="weather-locations-count">0</span></span>
+                                    <span><i class="fas fa-thermometer-half"></i> Alertas Activas: <span id="weather-active-alerts">0</span></span>
+                                </div>
+                            </div>
+                        </div>
+                    </div>
+                    
+                    <h3><i class="fas fa-globe-americas"></i> Localizaciones Monitorizadas</h3>
+                    <div id="weather-locations" class="weather-locations">
+                        <!-- Las localizaciones se cargarán aquí -->
+                    </div>
+                    
+                    <h3><i class="fas fa-history"></i> Historial Meteorológico</h3>
+                    <div id="weather-history" class="weather-history">
+                        <!-- El historial se cargará aquí -->
+                    </div>
+                </section>
+            </div>
 
-            <!-- Sección de Auditoría y Alertas -->
-            <section class="dashboard-section">
-                <div class="section-header">
-                    <h2><i class="fas fa-exclamation-triangle"></i> Alertas Meteorológicas</h2>
-                    <button id="refresh-alerts" class="btn btn-secondary">
+            <!-- Pestaña 3: Puntos de Carga -->
+            <div id="charging-points-tab" class="tab-content">
+                <section class="dashboard-section">
+                    <h2><i class="fas fa-plug"></i> Puntos de Carga (CPs)</h2>
+                    <div class="controls">
+                        <button id="refresh-cps" class="btn btn-primary">
+                            <i class="fas fa-sync-alt"></i> Actualizar CPs
+                        </button>
+                        <div class="filter-controls">
+                            <select id="filter-status">
+                                <option value="all">Todos los estados</option>
+                                <option value="ACTIVADO">Activos</option>
+                                <option value="PARADO">Parados</option>
+                                <option value="SUMINISTRANDO">Suministrando</option>
+                                <option value="AVERIA">Avería</option>
+                                <option value="DESCONECTADO">Desconectados</option>
+                            </select>
+                        </div>
+                    </div>
+                    <div id="cps-container" class="cards-container">
+                        <!-- Los CPs se cargarán aquí dinámicamente -->
+                    </div>
+                </section>
+            </div>
+
+            <!-- Pestaña 4: Conductores -->
+            <div id="drivers-tab" class="tab-content">
+                <section class="dashboard-section">
+                    <h2><i class="fas fa-users"></i> Conductores</h2>
+                    <div class="controls">
+                        <button id="refresh-drivers" class="btn btn-primary">
+                            <i class="fas fa-sync-alt"></i> Actualizar Conductores
+                        </button>
+                    </div>
+                    <div id="drivers-container" class="table-container">
+                        <table>
+                            <thead>
+                                <tr>
+                                    <th>ID</th>
+                                    <th>Nombre</th>
+                                    <th>Apellidos</th>
+                                    <th>Email</th>
+                                    <th>Teléfono</th>
+                                    <th>Estado</th>
+                                </tr>
+                            </thead>
+                            <tbody id="drivers-table-body">
+                                <!-- Los conductores se cargarán aquí -->
+                            </tbody>
+                        </table>
+                    </div>
+                </section>
+            </div>
+
+            <!-- Pestaña 5: Alertas -->
+            <div id="alerts-tab" class="tab-content">
+                <section class="dashboard-section">
+                    <div class="section-header">
+                        <h2><i class="fas fa-exclamation-triangle"></i> Alertas Meteorológicas</h2>
+                        <button id="refresh-alerts" class="btn btn-secondary">
+                            <i class="fas fa-sync-alt"></i> Actualizar
+                        </button>
+                    </div>
+                    <div id="alerts-container" class="alerts-container">
+                        <!-- Las alertas se cargarán aquí -->
+                    </div>
+                </section>
+            </div>
+
+            <!-- Pestaña 6: Auditoría -->
+            <div id="audit-tab" class="tab-content">
+                <section class="dashboard-section">
+                    <h2><i class="fas fa-clipboard-list"></i> Últimos Eventos de Auditoría</h2>
+                    <button id="refresh-audit" class="btn btn-primary">
                         <i class="fas fa-sync-alt"></i> Actualizar
                     </button>
-                    <button id="simulate-alert" class="btn btn-warning">
-                        <i class="fas fa-snowflake"></i> Simular Alerta
-                    </button>
-                    <button id="remove-alert" class="btn btn-success">
-                        <i class="fas fa-sun"></i> Quitar Alerta
-                    </button>
-                </div>
-                <div id="alerts-container" class="alerts-container">
-                    <!-- Las alertas se cargarán aquí -->
-                </div>
-
-                <h3><i class="fas fa-clipboard-list"></i> Últimos Eventos de Auditoría</h3>
-                <div id="audit-container" class="audit-container">
-                    <!-- Eventos de auditoría se cargarán aquí -->
-                </div>
-            </section>
-
-            <!-- Panel de Estado del Sistema -->
-            <section class="system-status">
-                <h2><i class="fas fa-heartbeat"></i> Estado del Sistema</h2>
-                <div class="status-grid">
-                    <div class="status-item">
-                        <span class="status-label">API Central</span>
-                        <span id="api-central-status" class="status-badge online">Online</span>
+                    <div id="audit-container" class="audit-container">
+                        <!-- Eventos de auditoría se cargarán aquí -->
                     </div>
-                    <div class="status-item">
-                        <span class="status-label">Base de Datos</span>
-                        <span id="db-status" class="status-badge online">Conectada</span>
-                    </div>
-                    <div class="status-item">
-                        <span class="status-label">Total CPs</span>
-                        <span id="total-cps" class="status-value">0</span>
-                    </div>
-                    <div class="status-item">
-                        <span class="status-label">CPs Activos</span>
-                        <span id="active-cps" class="status-value">0</span>
-                    </div>
-                    <div class="status-item">
-                        <span class="status-label">Alertas Activas</span>
-                        <span id="active-alerts" class="status-value">0</span>
-                    </div>
-                </div>
-            </section>
+                </section>
+            </div>
         </main>
 
         <!-- Pie de página -->

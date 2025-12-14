@@ -4,8 +4,12 @@ const path = require('path');
 const mysql = require("mysql"); 
 const bodyParser = require("body-parser"); 
 
+// Ruta al archivo de configuración de EV_W
+const WEATHER_CONFIG_PATH = path.join(__dirname, '..', '..', 'EV_W', 'weather_config.json');
+
 const https = require('https');
 const fs = require('fs');
+const fsPromises = fs.promises;
 
 
 const sslOptions = {
@@ -141,16 +145,12 @@ centralSD.get("/stats", (request, response) => {
 centralSD.get("/weather-alerts", (request, response) => {
     console.log('📡 Solicitud GET /weather-alerts recibida');
     
-    const sql = `SELECT a.*, pr.estado as cp_estado, pr.temperatura as cp_temperatura FROM auditoria a LEFT JOIN punto_recarga pr ON a.descripcion LIKE CONCAT('%CP ', pr.id_punto_recarga, '%')
-        WHERE a.accion = 'weather_alert' AND a.descripcion LIKE '%ALERTA METEOROLÓGICA%' AND pr.estado = 'PARADO' AND pr.temperatura < 0
-        AND a.fecha_hora = (
-            SELECT MAX(fecha_hora) 
-            FROM auditoria a2 
-            WHERE a2.accion = 'weather_alert' 
-            AND a2.descripcion LIKE CONCAT('%CP ', pr.id_punto_recarga, '%')
-            AND a2.descripcion LIKE '%ALERTA METEOROLÓGICA%'
-        )
+    const sql = `SELECT a.* FROM auditoria a
+        WHERE a.accion = 'weather_alert' 
+        AND a.descripcion LIKE '%ALERTA METEOROLÓGICA%'
+        AND a.alerta_activa = TRUE
         ORDER BY a.fecha_hora DESC`;
+    
     connection.query(sql, (error, results) => {
         if (error) {
             console.error('❌ Error en /weather-alerts:', error.message);
@@ -159,24 +159,57 @@ centralSD.get("/weather-alerts", (request, response) => {
                 details: error.message 
             });
         }
-        console.log(`✅ Alertas meteorológicas activas obtenidas: ${results.length} registros`);
+        console.log(`Alertas meteorológicas activas: ${results.length} registros`);
         response.json(results);
     });
 });
 
-// Endpoint para RECIBIR alertas meteorológicas del EV_W
+// Obtener alertas meteorológicas ACTIVAS (temperatura < 0)
+centralSD.get("/weather-active-alerts", (request, response) => {
+    console.log('📡 Solicitud GET /weather-active-alerts recibida');
+    
+    const sql = `SELECT pr.id_punto_recarga, pr.temperatura, a.descripcion, a.fecha_hora 
+                 FROM punto_recarga pr
+                 LEFT JOIN auditoria a ON a.descripcion LIKE CONCAT('%CP ', pr.id_punto_recarga, '%')
+                 WHERE pr.temperatura < 0 
+                 AND pr.estado = 'PARADO'
+                 AND a.accion = 'weather_alert'
+                 AND a.descripcion LIKE '%ALERTA METEOROLÓGICA%'
+                 AND a.fecha_hora = (
+                     SELECT MAX(fecha_hora) 
+                     FROM auditoria a2 
+                     WHERE a2.accion = 'weather_alert' 
+                     AND a2.descripcion LIKE CONCAT('%CP ', pr.id_punto_recarga, '%')
+                 )`;
+    
+    connection.query(sql, (error, results) => {
+        if (error) {
+            console.error('❌ Error en /weather-active-alerts:', error.message);
+            return response.status(500).json({ 
+                error: 'Error en la base de datos',
+                details: error.message 
+            });
+        }
+        console.log(`✅ Alertas activas obtenidas: ${results.length} registros`);
+        response.json(results);
+    });
+});
+
 // Endpoint para RECIBIR alertas meteorológicas del EV_W
 centralSD.post("/weather-alert", (request, response) => {
     console.log('Solicitud POST /weather-alert recibida:', request.body);
     
     const { cp_id, alert_type, temperature } = request.body;
     
-    if (!cp_id || !alert_type || temperature === undefined) {
+    if (!cp_id || !alert_type || temperature === undefined || temperature === null) {
+        console.error('Datos incompletos o inválidos:', { cp_id, alert_type, temperature });
         return response.status(400).json({ 
             error: 'Datos incompletos',
-            required: ['cp_id', 'alert_type', 'temperature'] 
+            received: request.body
         });
     }
+    
+    console.log(`Procesando: CP ${cp_id}, Temp: ${temperature}°C, Tipo: ${alert_type}`);
     
     // Verificar el estado ACTUAL del CP
     const checkCPSql = `SELECT estado, temperatura FROM punto_recarga WHERE id_punto_recarga = ?`;
@@ -188,23 +221,39 @@ centralSD.post("/weather-alert", (request, response) => {
         }
         
         if (checkResult.length === 0) {
+            console.error(`CP ${cp_id} no encontrado`);
             return response.status(404).json({ error: `CP ${cp_id} no encontrado` });
         }
         
         const cpEstadoActual = checkResult[0].estado;
         const cpTemperaturaActual = checkResult[0].temperatura;
         
+        console.log(`Estado actual CP ${cp_id}: ${cpEstadoActual}, Temp: ${cpTemperaturaActual}°C`);
+        
         // Determinar si este es un cambio REAL o no
         let esAlertaNueva = false;
         let esNormalizacion = false;
+        let alertaActiva = false;  // Nuevo: estado de la alerta
         
         if (alert_type === 'bajo_zero' && temperature < 0 && cpEstadoActual !== 'PARADO') {
             esAlertaNueva = true;
+            alertaActiva = true;  // Nueva alerta → activa
+            console.log(`NUEVA ALERTA: CP ${cp_id} bajo cero`);
         } else if (alert_type === 'normal' && temperature >= 0 && cpEstadoActual === 'PARADO') {
             esNormalizacion = true;
+            alertaActiva = false; // Normalización → desactivar
+            console.log(`NORMALIZACIÓN: CP ${cp_id} vuelve a temperatura normal`);
+        } else if (alert_type === 'bajo_zero' && temperature < 0) {
+            // Temperatura sigue bajo cero, mantener alerta activa
+            alertaActiva = true;
+            console.log(`ALERTA ACTIVA: CP ${cp_id} sigue bajo cero`);
+        } else if (alert_type === 'normal' && temperature >= 0) {
+            // Temperatura normal, sin alerta activa
+            alertaActiva = false;
+            console.log(`TEMPERATURA NORMAL: CP ${cp_id}`);
         }
         
-        // Insertar en auditoría SOLO si hay cambio real
+        // Construir descripción según el tipo de alerta
         let descripcion;
         let nuevoEstado;
         
@@ -216,21 +265,37 @@ centralSD.post("/weather-alert", (request, response) => {
             nuevoEstado = 'ACTIVADO';
         } else if (alert_type === 'cambio_temperatura') {
             descripcion = `ACTUALIZACIÓN: Nueva temperatura ${temperature}°C en CP ${cp_id}`;
-            nuevoEstado = null;
+            nuevoEstado = null;  // No cambiar estado, solo temperatura
+        } else if (alert_type === 'cambio_ciudad') {
+            descripcion = `CAMBIO DE CIUDAD: CP ${cp_id} ahora monitorea nueva ubicación. Temperatura: ${temperature}°C`;
+            nuevoEstado = null;  // No cambiar estado, solo temperatura
         } else {
             descripcion = `Informe meteorológico: Temperatura ${temperature}°C en CP ${cp_id}`;
             nuevoEstado = null;
         }
         
+        console.log(`Descripción: ${descripcion}`);
+        console.log(`Estado nuevo: ${nuevoEstado || 'sin cambio'}, Alerta activa: ${alertaActiva}`);
+        
         // Solo insertar en auditoría si hay cambio o es importante
         if (esAlertaNueva || esNormalizacion || alert_type === 'cambio_temperatura') {
-            const auditSql = `INSERT INTO auditoria (fecha_hora, ip_origen, accion, descripcion) VALUES (NOW(), 'EV_W', 'weather_alert', ?)`;
+            // IMPORTANTE: Ahora usamos alerta_activa
+            const auditSql = `INSERT INTO auditoria (fecha_hora, ip_origen, accion, descripcion, alerta_activa) 
+                             VALUES (NOW(), 'EV_W', 'weather_alert', ?, ?)`;
             
-            connection.query(auditSql, [descripcion], (err1) => {
-                if (err1) console.error('Error en auditoría:', err1.message);
+            console.log(`Insertando en auditoría con alerta_activa = ${alertaActiva}`);
+            
+            connection.query(auditSql, [descripcion, alertaActiva], (err1) => {
+                if (err1) {
+                    console.error('Error en auditoría:', err1.message);
+                    // Continuar aunque falle la auditoría
+                } else {
+                    console.log(`Registro de auditoría creado (ID: ${err1?.insertId || 'N/A'})`);
+                }
                 procesarActualizacion();
             });
         } else {
+            console.log(`No se requiere auditoría para este evento`);
             procesarActualizacion();
         }
         
@@ -265,14 +330,38 @@ centralSD.post("/weather-alert", (request, response) => {
         }
         
         function finalizarRespuesta() {
-            console.log(`Alerta procesada: CP ${cp_id} - ${temperature}°C - ${alert_type}`);
+            console.log(`Alerta procesada exitosamente: CP ${cp_id} - ${temperature}°C - ${alert_type}`);
+            
+            // También actualizar otras alertas del mismo CP para mantener consistencia
+            if (esNormalizacion && alertaActiva === false) {
+                // Si es una normalización, desactivar cualquier alerta previa del mismo CP que esté activa
+                const sqlDesactivarPrevias = `
+                    UPDATE auditoria 
+                    SET alerta_activa = FALSE 
+                    WHERE accion = 'weather_alert' 
+                    AND descripcion LIKE CONCAT('%CP ', ?, '%')
+                    AND alerta_activa = TRUE
+                    AND id_auditoria != LAST_INSERT_ID()
+                `;
+                
+                connection.query(sqlDesactivarPrevias, [cp_id], (err4) => {
+                    if (err4) {
+                        console.error('Error desactivando alertas previas:', err4.message);
+                    } else if (err4?.affectedRows > 0) {
+                        console.log(`🔄 ${err4.affectedRows} alertas previas desactivadas para CP ${cp_id}`);
+                    }
+                });
+            }
+            
             response.json({ 
                 success: true, 
                 message: `Temperatura actualizada para CP ${cp_id}`,
                 temperature: temperature,
                 state_changed: (esAlertaNueva || esNormalizacion),
                 is_new_alert: esAlertaNueva,
-                is_normalization: esNormalizacion
+                is_normalization: esNormalizacion,
+                alert_active: alertaActiva,
+                timestamp: new Date().toISOString()
             });
         }
     });
@@ -314,6 +403,205 @@ centralSD.get("/conductores-con-estado", (request, response) => {
         response.json(resultado);
     });
 });
+
+// ==============================================
+// ENDPOINTS PARA EL FRONTEND DE METEOROLOGÍA
+// ==============================================
+
+// 1. Obtener localizaciones configuradas
+centralSD.get("/weather-locations", async (request, response) => {
+    console.log('📡 Solicitud GET /weather-locations recibida');
+    
+    try {
+        // Usar fsPromises.readFile en lugar de fs.readFile
+        const data = await fsPromises.readFile(WEATHER_CONFIG_PATH, 'utf8');
+        const config = JSON.parse(data);
+        console.log(`✅ Localizaciones obtenidas: ${config.locations?.length || 0}`);
+        response.json(config.locations || []);
+    } catch (error) {
+        console.error('❌ Error leyendo weather_config.json:', error.message);
+        response.status(500).json({ 
+            error: 'Error leyendo configuración meteorológica',
+            details: error.message 
+        });
+    }
+});
+
+// 3. Añadir nueva localización (para que el frontend pueda modificar)
+centralSD.post("/weather-locations", async (request, response) => {
+    console.log('📡 Solicitud POST /weather-locations recibida:', request.body);
+    
+    const { cp_id, city, country } = request.body;
+    
+    if (!cp_id || !city || !country) {
+        return response.status(400).json({ 
+            error: 'Datos incompletos',
+            required: ['cp_id', 'city', 'country'] 
+        });
+    }
+    
+    try {
+        // Leer configuración actual - usar fsPromises
+        const data = await fsPromises.readFile(WEATHER_CONFIG_PATH, 'utf8');
+        const config = JSON.parse(data);
+        
+        // Verificar si el CP ya existe
+        const existingIndex = config.locations.findIndex(loc => loc.cp_id === cp_id);
+        
+        if (existingIndex !== -1) {
+            // Actualizar localización existente
+            config.locations[existingIndex] = { cp_id, city, country };
+        } else {
+            // Añadir nueva localización
+            config.locations.push({ cp_id, city, country });
+        }
+        
+        // Guardar archivo - usar fsPromises
+        await fsPromises.writeFile(WEATHER_CONFIG_PATH, JSON.stringify(config, null, 2));
+        
+        console.log(`✅ Localización guardada en weather_config.json: CP ${cp_id} - ${city}, ${country}`);
+        
+        // Registrar en auditoría
+        const auditSql = `INSERT INTO auditoria (fecha_hora, ip_origen, accion, descripcion) 
+                         VALUES (NOW(), 'Frontend', 'config_update', ?)`;
+        const descripcion = `Configuración meteorológica actualizada: CP ${cp_id} - ${city}, ${country}`;
+        
+        connection.query(auditSql, [descripcion], (auditError) => {
+            if (auditError) console.error('Error en auditoría:', auditError.message);
+        });
+        
+        response.json({ 
+            success: true, 
+            message: 'Localización guardada correctamente',
+            location: { cp_id, city, country }
+        });
+        
+    } catch (error) {
+        console.error('❌ Error guardando localización:', error.message);
+        response.status(500).json({ 
+            error: 'Error guardando localización',
+            details: error.message 
+        });
+    }
+});
+
+// 4. Actualizar localización existente
+centralSD.put("/weather-locations/:cp_id", async (request, response) => {
+    const { cp_id } = request.params;
+    const { city, country } = request.body;
+    
+    console.log(`📡 Solicitud PUT /weather-locations/${cp_id}:`, { city, country });
+    
+    if (!city || !country) {
+        return response.status(400).json({ 
+            error: 'Datos incompletos',
+            required: ['city', 'country'] 
+        });
+    }
+    
+    try {
+        // Leer configuración actual - usar fsPromises
+        const data = await fsPromises.readFile(WEATHER_CONFIG_PATH, 'utf8');
+        const config = JSON.parse(data);
+        
+        const locationIndex = config.locations.findIndex(loc => loc.cp_id === cp_id);
+        
+        if (locationIndex === -1) {
+            return response.status(404).json({ 
+                error: 'Localización no encontrada',
+                message: `No se encontró el CP ${cp_id} en la configuración`
+            });
+        }
+        
+        // Guardar datos antiguos para el log
+        const oldLocation = { ...config.locations[locationIndex] };
+        
+        // Actualizar localización
+        config.locations[locationIndex] = {
+            ...config.locations[locationIndex],
+            city,
+            country
+        };
+        
+        // Guardar archivo - usar fsPromises
+        await fsPromises.writeFile(WEATHER_CONFIG_PATH, JSON.stringify(config, null, 2));
+        
+        console.log(`✅ Localización actualizada: CP ${cp_id} - ${city}, ${country}`);
+        
+        // Registrar en auditoría
+        const auditSql = `INSERT INTO auditoria (fecha_hora, ip_origen, accion, descripcion) 
+                         VALUES (NOW(), 'Frontend', 'config_update', ?)`;
+        const descripcion = `Ciudad cambiada para CP ${cp_id}: ${oldLocation.city},${oldLocation.country} → ${city},${country}`;
+        
+        connection.query(auditSql, [descripcion], (auditError) => {
+            if (auditError) console.error('Error en auditoría:', auditError.message);
+        });
+        
+        response.json({ 
+            success: true, 
+            message: 'Localización actualizada correctamente',
+            old_location: oldLocation,
+            new_location: config.locations[locationIndex]
+        });
+        
+    } catch (error) {
+        console.error('❌ Error actualizando localización:', error.message);
+        response.status(500).json({ 
+            error: 'Error actualizando localización',
+            details: error.message 
+        });
+    }
+});
+
+// Añade este endpoint al archivo centralSD.js:
+centralSD.get("/weather-history", (request, response) => {
+    console.log('📡 Solicitud GET /weather-history recibida');
+    
+    const sql = `SELECT * FROM auditoria 
+                 WHERE accion = 'weather_alert' 
+                 ORDER BY fecha_hora DESC 
+                 LIMIT 50`;
+    
+    connection.query(sql, (error, results) => {
+        if (error) {
+            console.error('❌ Error en /weather-history:', error.message);
+            return response.status(500).json({ 
+                error: 'Error en la base de datos',
+                details: error.message 
+            });
+        }
+        
+        // Transformar resultados para el frontend
+        const history = results.map(row => ({
+            cp_id: extractCPIdFromDescription(row.descripcion),
+            alert_type: getAlertTypeFromDescription(row.descripcion),
+            temperature: extractTemperatureFromDescription(row.descripcion),
+            timestamp: row.fecha_hora,
+            source: 'database'
+        }));
+        
+        console.log(`✅ Historial meteorológico obtenido: ${history.length} registros`);
+        response.json(history);
+    });
+});
+
+// Funciones auxiliares
+function extractCPIdFromDescription(desc) {
+    const match = desc.match(/CP (\d+)/);
+    return match ? match[1] : null;
+}
+
+function getAlertTypeFromDescription(desc) {
+    if (desc.includes('ALERTA METEOROLÓGICA')) return 'bajo_zero';
+    if (desc.includes('NORMALIZACIÓN')) return 'normal';
+    if (desc.includes('ACTUALIZACIÓN')) return 'cambio_temperatura';
+    return 'unknown';
+}
+
+function extractTemperatureFromDescription(desc) {
+    const match = desc.match(/(?:Temperatura|temperatura) (-?\d+(?:\.\d+)?)/);
+    return match ? parseFloat(match[1]) : null;
+}
 
 centralSD.use((req, res, next) => {
     const error = new Error('Ruta no encontrada');

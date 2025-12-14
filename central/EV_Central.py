@@ -404,6 +404,128 @@ class EV_Central: # Clase Central (Principal para la práctica)
                 self.productor.flush()
                 print(f"Mensaje enviado al conductor: {driver_id}")
 
+    def sincronizar_estado_cp_desde_bd(self, cp_id):
+        datos_cp = self.obtener_estado_cp_bd(cp_id)
+        
+        if datos_cp:
+            with self._lock:
+                if cp_id not in self.cps:
+                    self.cps[cp_id] = {}
+                
+                estado_anterior = self.cps[cp_id].get("estado", "N/A")
+                estado_nuevo = datos_cp["estado"]
+                
+                # Actualizar en memoria
+                self.cps[cp_id]["estado"] = estado_nuevo
+                self.cps[cp_id]["temperatura"] = datos_cp["temperatura"]
+                self.cps[cp_id]["ultima_actualizacion"] = time.time()
+                
+                if estado_anterior != estado_nuevo:
+                    print(f"[CENTRAL] Estado sincronizado CP {cp_id}: {estado_anterior} → {estado_nuevo}")
+                    
+                    # Si pasa de PARADO a ACTIVADO, limpiar asignaciones si las hubiera
+                    if estado_anterior == "PARADO" and estado_nuevo == "ACTIVADO":
+                        if cp_id in self.driver_por_cp:
+                            driver_id = self.driver_por_cp[cp_id]
+                            print(f"[CENTRAL] Limpiando asignación obsoleta: CP {cp_id} - Driver {driver_id}")
+                            self.cp_por_driver.pop(driver_id, None)
+                            self.driver_por_cp.pop(cp_id, None)
+            
+            return True
+        return False
+
+    def obtener_estado_cp_bd(self, cp_id):
+        """Obtener estado actual de un CP desde la base de datos"""
+        conexion = self.obtener_conexion_bd()
+        if not conexion:
+            return None
+        
+        try:
+            cursor = conexion.cursor()
+            consulta = "SELECT estado, temperatura FROM punto_recarga WHERE id_punto_recarga = %s"
+            cursor.execute(consulta, (cp_id,))
+            resultado = cursor.fetchone()
+            cursor.close()
+            conexion.close()
+            
+            if resultado:
+                return {
+                    "estado": resultado[0],
+                    "temperatura": resultado[1] if resultado[1] is not None else 20
+                }
+            return None
+        except Exception as e:
+            print(f"Error al obtener estado CP desde BD: {e}")
+            conexion.close()
+            return None
+
+    def obtener_temperatura_cp(self, cp_id):
+        """Obtener temperatura actual de un CP"""
+        conexion = self.obtener_conexion_bd()
+        if not conexion:
+            return None
+        
+        try:
+            cursor = conexion.cursor()
+            consulta = "SELECT temperatura FROM punto_recarga WHERE id_punto_recarga = %s"
+            cursor.execute(consulta, (cp_id,))
+            resultado = cursor.fetchone()
+            cursor.close()
+            conexion.close()
+            
+            return resultado[0] if resultado else None
+        except Exception as e:
+            print(f"Error al obtener temperatura CP: {e}")
+            conexion.close()
+            return None
+
+    def verificar_disponibilidad_cp(self, cp_id, estado_cp, temperatura): # Verificar disponibilidad del CP
+        
+        # 1. Verificar estado básico
+        if estado_cp == EST_DESC:
+            return False, "CP desconectado"
+        elif estado_cp == EST_AVERIA:
+            return False, "CP en avería"
+        elif estado_cp == EST_SUM:
+            return False, "CP ya está suministrando"
+        elif estado_cp == "PARADO":
+            # Verificar si está parado por alerta meteorológica
+            if temperatura is not None and temperatura < 0:
+                return False, f"Alerta meteorológica ({temperatura}°C)"
+            else:
+                # Si está PARADO pero temperatura >= 0, puede ser un estado temporal
+                # Verificar en BD para asegurar
+                datos_bd = self.obtener_estado_cp_bd(cp_id)
+                if datos_bd and datos_bd["estado"] == "PARADO":
+                    return False, "CP parado manualmente"
+                else:
+                    # Estado inconsistente, forzar sincronización
+                    self.sincronizar_estado_cp_desde_bd(cp_id)
+                    with self._lock:
+                        estado_cp = self.cps.get(cp_id, {}).get("estado", EST_DESC)
+                    
+                    if estado_cp == "ACTIVADO":
+                        return True, "CP disponible (estado corregido)"
+                    else:
+                        return False, f"Estado {estado_cp}"
+        
+        # 2. Verificar temperatura si estado es ACTIVADO
+        elif estado_cp == EST_ACTIVO:
+            if temperatura is not None and temperatura < 0:
+                # Estado inconsistente: ACTIVADO pero temperatura < 0
+                print(f"[CENTRAL] ERROR: CP {cp_id} ACTIVADO pero temperatura {temperatura}°C")
+                # Actualizar estado a PARADO
+                self.actualizar_estado_cp_en_bd(cp_id, "PARADO")
+                with self._lock:
+                    self.cps[cp_id]["estado"] = "PARADO"
+                return False, f"Alerta meteorológica detectada ({temperatura}°C)"
+            else:
+                return True, "CP disponible"
+        
+        # 3. Estado desconocido
+        else:
+            return False, f"Estado desconocido: {estado_cp}"
+
     def escuchar_peticiones_recarga(self):
         consumidor = obtener_consumidor('CARGA_SOLICITADA', 'central-recargas', self.servidor_kafka)
         print("CENTRAL: Escuchando peticiones de Recarga...")
@@ -420,6 +542,9 @@ class EV_Central: # Clase Central (Principal para la práctica)
                                         f"Driver {driver_id} solicitando suministro en CP {cp_id}")
                 
                 print(f"El conductor: {driver_id} ha solicitado una recarga en el CP: {cp_id}")
+                
+                # 1. Sincronizar estado desde BD ANTES de verificar
+                self.sincronizar_estado_cp_desde_bd(cp_id)
                 
                 cp_existe = self.verifico_cp(cp_id)
 
@@ -438,53 +563,61 @@ class EV_Central: # Clase Central (Principal para la práctica)
                     print(f"[CENTRAL] Recarga DENEGADA en {cp_id} para driver {driver_id}")
                     continue
 
+                # 2. Obtener estado sincronizado
                 with self._lock:
                     estado_cp = self.cps.get(cp_id, {}).get("estado", EST_DESC)
-                    print(f"[CENTRAL] Estado del CP {cp_id}: {estado_cp}")
+                    temperatura = self.cps.get(cp_id, {}).get("temperatura", 20)
+                
+                print(f"[CENTRAL] Estado CP {cp_id} después de sincronizar: {estado_cp}, Temp: {temperatura}°C")
 
-                if estado_cp == EST_ACTIVO:
-                    # Cambiar estado del driver a "Esperando a CP X"
-                    self.actualizar_estado_driver(driver_id, f"Esperando a CP {cp_id}")
-                    
-                    cmd = {
-                        "cp_id": cp_id,
-                        "cmd": "INICIAR_CARGA",
-                        "meta": {"driver_id": driver_id}
-                    }
-                    self.productor.send(TOPIC_COMANDOS, cmd)
-                    self.productor.flush()
-
-                    with self._lock:
-                        self.cps.setdefault(cp_id, {})["estado"] = EST_SUM
-                        self.driver_por_cp[cp_id] = driver_id
-                        self.cp_por_driver[driver_id] = cp_id
-
-                    resp = {
-                        "driver_id": driver_id,
-                        "cp_id": cp_id,
-                        "confirmacion": True,
-                        "mensaje": f"CP {cp_id} disponible. Iniciando suministro..."
-                    }
-                    # REGISTRAR EN AUDITORÍA: Suministro concedido
-                    self.registrar_auditoria("CENTRAL", "suministro_concedido",
-                                            f"Suministro concedido para Driver {driver_id} en CP {cp_id}")
-                    time.sleep(3)
-                    self.productor.send(TOPIC_RESP_DRIVER, resp)
-                    self.productor.flush()
-                    print(f"[CENTRAL] Recarga AUTORIZADA en {cp_id} para driver {driver_id}")
-                else:
+                # 3. Verificar disponibilidad CORRECTAMENTE
+                disponible, motivo = self.verificar_disponibilidad_cp(cp_id, estado_cp, temperatura)
+                
+                if not disponible:
                     resp = {
                         "driver_id": driver_id,
                         "cp_id": cp_id,
                         "confirmacion": False,
-                        "mensaje": f"CP {cp_id} no disponible (estado actual: {estado_cp})."
+                        "mensaje": f"CP {cp_id} no disponible: {motivo}"
                     }
                     # REGISTRAR EN AUDITORÍA: Solicitud denegada
                     self.registrar_auditoria("CENTRAL", "carga_denegada",
-                                            f"Solicitud de carga denegada para el Driver {driver_id} en CP {cp_id}")
+                                            f"Solicitud de carga denegada para el Driver {driver_id} en CP {cp_id} - {motivo}")
                     self.productor.send(TOPIC_RESP_DRIVER, resp)
                     self.productor.flush()
-                    print(f"[CENTRAL] Recarga DENEGADA en {cp_id} para driver {driver_id} (estado: {estado_cp})")
+                    print(f"[CENTRAL] Recarga DENEGADA en {cp_id} para driver {driver_id}: {motivo}")
+                    continue
+
+                # 4. Si está disponible, proceder
+                # Cambiar estado del driver a "Esperando a CP X"
+                self.actualizar_estado_driver(driver_id, f"Esperando a CP {cp_id}")
+                
+                cmd = {
+                    "cp_id": cp_id,
+                    "cmd": "INICIAR_CARGA",
+                    "meta": {"driver_id": driver_id}
+                }
+                self.productor.send(TOPIC_COMANDOS, cmd)
+                self.productor.flush()
+
+                with self._lock:
+                    self.cps.setdefault(cp_id, {})["estado"] = EST_SUM
+                    self.driver_por_cp[cp_id] = driver_id
+                    self.cp_por_driver[driver_id] = cp_id
+
+                resp = {
+                    "driver_id": driver_id,
+                    "cp_id": cp_id,
+                    "confirmacion": True,
+                    "mensaje": f"CP {cp_id} disponible. Iniciando suministro..."
+                }
+                # REGISTRAR EN AUDITORÍA: Suministro concedido
+                self.registrar_auditoria("CENTRAL", "suministro_concedido",
+                                        f"Suministro concedido para Driver {driver_id} en CP {cp_id}")
+                time.sleep(3)
+                self.productor.send(TOPIC_RESP_DRIVER, resp)
+                self.productor.flush()
+                print(f"[CENTRAL] Recarga AUTORIZADA en {cp_id} para driver {driver_id}")
 
                 print(f"Mensaje enviado al conductor: {driver_id}.")
 

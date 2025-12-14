@@ -65,6 +65,60 @@ header h1 {
     color: #f44336;
 }
 
+/* Navegación por pestañas */
+.nav-tabs {
+    display: flex;
+    background: rgba(255, 255, 255, 0.05);
+    border-radius: 10px;
+    margin-bottom: 30px;
+    overflow: hidden;
+    box-shadow: 0 4px 6px rgba(0, 0, 0, 0.1);
+}
+
+.tab {
+    flex: 1;
+    padding: 20px 25px;
+    text-align: center;
+    cursor: pointer;
+    transition: all 0.3s ease;
+    border-bottom: 3px solid transparent;
+    font-weight: bold;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    gap: 10px;
+    color: #b0bec5;
+}
+
+.tab:hover {
+    background: rgba(79, 195, 247, 0.1);
+    color: #e6e6e6;
+}
+
+.tab.active {
+    background: rgba(79, 195, 247, 0.15);
+    color: #4fc3f7;
+    border-bottom-color: #4fc3f7;
+}
+
+.tab i {
+    font-size: 1.2rem;
+}
+
+.tab-content {
+    display: none;
+}
+
+.tab-content.active {
+    display: block;
+    animation: fadeIn 0.5s ease;
+}
+
+@keyframes fadeIn {
+    from { opacity: 0; transform: translateY(10px); }
+    to { opacity: 1; transform: translateY(0); }
+}
+
 /* Secciones del dashboard */
 .dashboard-section {
     background: rgba(255, 255, 255, 0.05);
@@ -91,6 +145,154 @@ header h1 {
     color: #90a4ae;
     margin: 25px 0 15px 0;
     font-size: 1.2rem;
+}
+
+/* Vista rápida del dashboard */
+.quick-view {
+    display: grid;
+    grid-template-columns: repeat(auto-fit, minmax(300px, 1fr));
+    gap: 20px;
+    margin-top: 30px;
+}
+
+.quick-view-item {
+    background: rgba(255, 255, 255, 0.05);
+    padding: 20px;
+    border-radius: 8px;
+    border-left: 4px solid #4fc3f7;
+}
+
+.quick-view-item h3 {
+    color: #4fc3f7;
+    margin-bottom: 15px;
+    font-size: 1.1rem;
+}
+
+.quick-content {
+    max-height: 200px;
+    overflow-y: auto;
+}
+
+.quick-item {
+    padding: 10px 0;
+    border-bottom: 1px solid rgba(255, 255, 255, 0.1);
+    font-size: 0.9rem;
+}
+
+.quick-item:last-child {
+    border-bottom: none;
+}
+
+/* Estilos específicos para el monitor meteorológico */
+.weather-controls {
+    display: flex;
+    gap: 10px;
+    margin-bottom: 20px;
+    flex-wrap: wrap;
+}
+
+.weather-info {
+    margin-bottom: 30px;
+}
+
+.weather-card {
+    background: rgba(79, 195, 247, 0.1);
+    border: 1px solid rgba(79, 195, 247, 0.3);
+    border-radius: 10px;
+    padding: 25px;
+    display: flex;
+    align-items: center;
+    gap: 20px;
+}
+
+.weather-icon {
+    font-size: 3rem;
+    color: #4fc3f7;
+}
+
+.weather-content h3 {
+    color: #4fc3f7;
+    margin-bottom: 10px;
+}
+
+.weather-stats {
+    display: flex;
+    gap: 20px;
+    margin-top: 15px;
+    flex-wrap: wrap;
+}
+
+.weather-stats span {
+    background: rgba(255, 255, 255, 0.1);
+    padding: 5px 15px;
+    border-radius: 20px;
+    font-size: 0.9rem;
+}
+
+.weather-locations {
+    display: grid;
+    grid-template-columns: repeat(auto-fill, minmax(250px, 1fr));
+    gap: 15px;
+    margin-bottom: 30px;
+}
+
+.location-card {
+    background: rgba(255, 255, 255, 0.08);
+    padding: 15px;
+    border-radius: 8px;
+    border-left: 4px solid #4fc3f7;
+}
+
+.location-card.alert {
+    border-left-color: #ff9800;
+    background: rgba(255, 152, 0, 0.1);
+}
+
+.location-header {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    margin-bottom: 10px;
+}
+
+.location-city {
+    font-weight: bold;
+    color: #4fc3f7;
+}
+
+.location-temp {
+    font-size: 1.5rem;
+    font-weight: bold;
+}
+
+.location-temp.warning {
+    color: #ff9800;
+}
+
+.location-details {
+    font-size: 0.9rem;
+    color: #b0bec5;
+}
+
+.weather-history {
+    max-height: 300px;
+    overflow-y: auto;
+}
+
+.weather-event {
+    padding: 10px 15px;
+    border-bottom: 1px solid rgba(255, 255, 255, 0.1);
+    font-size: 0.9rem;
+}
+
+.weather-event.alert {
+    background: rgba(255, 152, 0, 0.05);
+    border-left: 3px solid #ff9800;
+}
+
+.weather-event.normal {
+    background: rgba(76, 175, 80, 0.05);
+    border-left: 3px solid #4caf50;
 }
 
 /* Controles */
@@ -128,7 +330,6 @@ header h1 {
     color: white;
 }
 
-/* Agrega estos estilos en la sección de botones */
 .btn-warning {
     background: linear-gradient(135deg, #ff9800 0%, #f57c00 100%);
     color: white;
@@ -139,44 +340,29 @@ header h1 {
     color: white;
 }
 
-.alert-controls {
-    display: flex;
-    gap: 10px;
-    align-items: center;
-}
-
-/* Estilo para el select cuando está cerrado */
 .filter-controls select {
     padding: 10px 15px;
     border-radius: 5px;
     background: rgba(255, 255, 255, 0.1);
     border: 1px solid rgba(255, 255, 255, 0.2);
-    color: white; /* Texto blanco cuando está cerrado */
+    color: white;
     min-width: 200px;
     appearance: none;
     -webkit-appearance: none;
     -moz-appearance: none;
 }
 
-/* Estilo para las opciones dentro del select (cuando se despliega) */
 .filter-controls option {
-    background-color: white; /* Fondo blanco */
-    color: black; /* Texto negro */
+    background-color: white;
+    color: black;
     padding: 10px;
 }
 
-/* Estilo para la opción seleccionada (visible cuando está cerrado) */
 .filter-controls select:focus {
     outline: none;
     border-color: #4fc3f7;
 }
 
-/* Para mejorar la apariencia del dropdown en diferentes navegadores */
-.filter-controls select::-ms-expand {
-    display: none;
-}
-
-/* Estilo del ícono del dropdown */
 .filter-controls {
     position: relative;
 }
@@ -264,6 +450,11 @@ header h1 {
     font-weight: bold;
 }
 
+.temperature-warning {
+    color: #ff9800 !important;
+    font-weight: bold;
+}
+
 /* Tabla de conductores */
 .table-container {
     overflow-x: auto;
@@ -336,7 +527,7 @@ tr:hover {
 }
 
 .audit-container {
-    max-height: 300px;
+    max-height: 500px;
     overflow-y: auto;
 }
 
@@ -403,46 +594,7 @@ tr:hover {
     color: #4fc3f7;
 }
 
-/* Pie de página */
-footer {
-    text-align: center;
-    padding: 20px;
-    margin-top: 30px;
-    color: #90a4ae;
-    font-size: 0.9rem;
-    border-top: 1px solid rgba(255, 255, 255, 0.1);
-}
-
-/* Responsive */
-@media (max-width: 768px) {
-    .container {
-        padding: 10px;
-    }
-    
-    header {
-        flex-direction: column;
-        gap: 15px;
-        text-align: center;
-    }
-    
-    .cards-container {
-        grid-template-columns: 1fr;
-    }
-    
-    .status-grid {
-        grid-template-columns: 1fr;
-    }
-    
-    .controls {
-        flex-direction: column;
-    }
-    
-    .filter-controls select {
-        width: 100%;
-    }
-}
-
-/* Modal para ingresar temperatura - AÑADE ESTO AL FINAL DEL ARCHIVO */
+/* Modal para ingresar temperatura */
 .modal {
     display: none;
     position: fixed;
@@ -520,16 +672,26 @@ footer {
     display: none;
 }
 
-/* Estilo para el texto informativo dentro del modal */
-.modal-info-text {
+/* Modal para añadir localización */
+.modal-content select {
+    width: 100%;
+    padding: 12px 15px;
+    background: rgba(255, 255, 255, 0.1);
+    border: 1px solid rgba(255, 255, 255, 0.3);
+    border-radius: 5px;
+    color: white;
+    font-size: 1rem;
+    margin: 10px 0;
+}
+
+/* Pie de página */
+footer {
+    text-align: center;
+    padding: 20px;
+    margin-top: 30px;
     color: #90a4ae;
     font-size: 0.9rem;
-    margin: 10px 0 20px 0;
-    text-align: center;
-    padding: 10px;
-    background: rgba(79, 195, 247, 0.1);
-    border-radius: 5px;
-    border-left: 3px solid #4fc3f7;
+    border-top: 1px solid rgba(255, 255, 255, 0.1);
 }
 
 .copyright {
@@ -537,4 +699,61 @@ footer {
     color: #666;
     margin-top: 5px;
     font-style: italic;
+}
+
+/* Responsive */
+@media (max-width: 768px) {
+    .container {
+        padding: 10px;
+    }
+    
+    header {
+        flex-direction: column;
+        gap: 15px;
+        text-align: center;
+    }
+    
+    .nav-tabs {
+        flex-direction: column;
+    }
+    
+    .tab {
+        padding: 15px;
+        justify-content: flex-start;
+    }
+    
+    .cards-container {
+        grid-template-columns: 1fr;
+    }
+    
+    .status-grid {
+        grid-template-columns: 1fr;
+    }
+    
+    .controls {
+        flex-direction: column;
+    }
+    
+    .filter-controls select {
+        width: 100%;
+    }
+    
+    .section-header {
+        flex-direction: column;
+        gap: 10px;
+        align-items: flex-start;
+    }
+    
+    .weather-controls {
+        flex-direction: column;
+    }
+    
+    .weather-stats {
+        flex-direction: column;
+        gap: 10px;
+    }
+    
+    .quick-view {
+        grid-template-columns: 1fr;
+    }
 }
