@@ -5,12 +5,35 @@ import requests
 from datetime import datetime
 
 class WeatherControlOffice:
-    def __init__(self, config_file = "weather_config.json", api_central = "http://localhost:3000"):
+    def __init__(self, config_file="weather_config.json", api_central="https://localhost:3000"):
         self.config_file = config_file
         self.api_central = api_central
-        self.api_open_weather = "e7abad131d41796211d63d8c20bc59d1" # Api de la web OpenWeather
+        self.api_open_weather = "e7abad131d41796211d63d8c20bc59d1"
         self.localizaciones = self.cargar_localizaciones()
         self.localizaciones_alertadas = set()
+        self.ultimas_temperaturas = {}
+    
+    def recargar_configuracion(self): # Recargar configuración desde archivo
+        nuevas_localizaciones = self.cargar_localizaciones()
+        
+        if nuevas_localizaciones != self.localizaciones:
+            print(f"[CONFIG] Recargando configuración: {len(nuevas_localizaciones)} localizaciones")
+            self.localizaciones = nuevas_localizaciones
+            
+            # Recalcular alertas activas basadas en nuevas temperaturas
+            for loc in self.localizaciones:
+                cp_id = loc["cp_id"]
+                # Si teníamos una alerta activa, verificamos si sigue siendo válida
+                if cp_id in self.localizaciones_alertadas:
+                    # Obtener temperatura actual para verificar si sigue en alerta
+                    temp = self.ultimas_temperaturas.get(cp_id)
+                    if temp is not None and temp >= 0:
+                        print(f"[CONFIG] Eliminando alerta obsoleta para CP {cp_id}")
+                        self.localizaciones_alertadas.discard(cp_id)
+                        self.notificar_central(cp_id, "normal", temp)
+            
+            return True
+        return False
 
     def cargar_localizaciones(self):
         try:
@@ -46,24 +69,93 @@ class WeatherControlOffice:
         except Exception as e:
             print(f"Error en la conexión para {city}: {e}")
             return None
+        
+    def cambiar_ciudad_cp(self, cp_id, nueva_ciudad, nuevo_pais=None):
+        for loc in self.localizaciones:
+            if loc["cp_id"] == str(cp_id):
+                ciudad_anterior = loc["city"]
+                pais_anterior = loc["country"]
+                
+                # Actualizar la localización
+                loc["city"] = nueva_ciudad
+                if nuevo_pais:
+                    loc["country"] = nuevo_pais
+                else:
+                    nuevo_pais = loc["country"]
+                
+                self.guardar_localizaciones()
+                
+                print(f"[INFO] CP {cp_id}: Ciudad cambiada de {ciudad_anterior},{pais_anterior} a {nueva_ciudad},{nuevo_pais}")
+                
+                # Obtener temperatura de la NUEVA ciudad inmediatamente
+                nueva_temp = self.get_temperature(nueva_ciudad, nuevo_pais)
+                
+                if nueva_temp is not None:
+                    print(f"[INFO] Nueva temperatura obtenida: {nueva_temp}°C")
+                    
+                    # Actualizar temperatura en memoria
+                    self.ultimas_temperaturas[cp_id] = nueva_temp
+                    
+                    # Notificar a la central con la NUEVA temperatura y tipo especial
+                    self.notificar_central(cp_id, "cambio_ciudad", nueva_temp)
+                    
+                    # Verificar alertas
+                    if nueva_temp < 0 and cp_id not in self.localizaciones_alertadas:
+                        print(f"[INFO] Nueva alerta detectada para CP {cp_id}: {nueva_temp}°C")
+                        self.notificar_central(cp_id, "bajo_zero", nueva_temp)
+                        self.localizaciones_alertadas.add(cp_id)
+                    elif nueva_temp >= 0 and cp_id in self.localizaciones_alertadas:
+                        print(f"[INFO] Alerta finalizada para CP {cp_id}: {nueva_temp}°C")
+                        self.notificar_central(cp_id, "normal", nueva_temp)
+                        self.localizaciones_alertadas.discard(cp_id)
+                    
+                    return True
+                else:
+                    print(f"[ERROR] No se pudo obtener temperatura para {nueva_ciudad}")
+                    return False
+        
+        print(f"[ERROR] CP {cp_id} no encontrado en localizaciones")
+        return False
 
-    def notificar_central(self, cp_id, estado, temperatura): # Notificar central sobre alertas
+    def notificar_central(self, cp_id, estado, temperatura):
         url = f"{self.api_central}/weather-alert"
-
-        mensaje = {"cp_id": cp_id, "alert_type": estado, "temperature": temperatura, "timestamp": datetime.now().isoformat()}
+        
+        mensaje = {
+            "cp_id": cp_id, 
+            "alert_type": estado, 
+            "temperature": temperatura, 
+            "timestamp": datetime.now().isoformat()
+        }
+        
+        print(f"[DEBUG] Enviando a central: CP {cp_id}, Temp: {temperatura}°C, Estado: {estado}")
+        
         try:
-            response = requests.post(url, json = mensaje, timeout = 10)
+            # verify=False para ignorar certificados SSL
+            response = requests.post(url, json=mensaje, timeout=10, verify=False)
+            
+            print(f"[DEBUG] Respuesta status: {response.status_code}")
+            
             if response.status_code == 200:
-                print(f"Notificación enviada a la central para CP_ID {cp_id} con estado {estado}.")
+                data = response.json()
+                print(f"Notificación enviada: {data.get('message', 'OK')}")
+                return True
             else:
-                print(f"Error al notificar a la central para CP_ID {cp_id}: {response.text}")
+                print(f"Error {response.status_code}: {response.text}")
+                return False
         except Exception as e:
-            print(f"Error en la conexión con la central para CP_ID {cp_id}: {e}")
+            print(f"Error de conexión: {e}")
+            return False
 
 
     def verificar_localizaciones(self): # para guardar la última temperatura conocida de cada CP
-        if not hasattr(self, 'ultimas_temperaturas'):
-            self.ultimas_temperaturas = {}
+        # Recargar configuración cada 5 ciclos para capturar cambios del frontend
+        if not hasattr(self, 'ciclos_verificacion'):
+            self.ciclos_verificacion = 0
+        
+        self.ciclos_verificacion += 1
+        
+        if self.ciclos_verificacion % 5 == 0:  # Cada 5 ciclos (20 segundos)
+            self.recargar_configuracion()
         
         for loc in self.localizaciones:
             temp = self.get_temperature(loc["city"], loc["country"])

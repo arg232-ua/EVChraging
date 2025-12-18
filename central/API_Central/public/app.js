@@ -1,22 +1,43 @@
 // Configuración
 const API_BASE_URL = 'https://localhost:3000';
 let refreshInterval = null;
+let currentTab = 'dashboard';
 
 // Elementos del DOM
 const elements = {
+    // Elementos generales
     currentTime: document.getElementById('current-time'),
     apiStatus: document.getElementById('api-status'),
-    cpsContainer: document.getElementById('cps-container'),
-    driversTableBody: document.getElementById('drivers-table-body'),
-    alertsContainer: document.getElementById('alerts-container'),
-    auditContainer: document.getElementById('audit-container'),
+    lastUpdate: document.getElementById('last-update'),
+    
+    // Elementos de dashboard
+    apiCentralStatus: document.getElementById('api-central-status'),
+    dbStatus: document.getElementById('db-status'),
     totalCps: document.getElementById('total-cps'),
     activeCps: document.getElementById('active-cps'),
     activeAlerts: document.getElementById('active-alerts'),
-    apiCentralStatus: document.getElementById('api-central-status'),
-    dbStatus: document.getElementById('db-status'),
-    lastUpdate: document.getElementById('last-update'),
-    filterStatus: document.getElementById('filter-status')
+    quickCps: document.getElementById('quick-cps'),
+    quickAlerts: document.getElementById('quick-alerts'),
+    quickAudit: document.getElementById('quick-audit'),
+    
+    // Elementos de puntos de carga
+    cpsContainer: document.getElementById('cps-container'),
+    filterStatus: document.getElementById('filter-status'),
+    
+    // Elementos de conductores
+    driversTableBody: document.getElementById('drivers-table-body'),
+    
+    // Elementos de alertas
+    alertsContainer: document.getElementById('alerts-container'),
+    
+    // Elementos de auditoría
+    auditContainer: document.getElementById('audit-container'),
+    
+    // Elementos del monitor meteorológico
+    weatherLocationsCount: document.getElementById('weather-locations-count'),
+    weatherActiveAlerts: document.getElementById('weather-active-alerts'),
+    weatherLocations: document.getElementById('weather-locations'),
+    weatherHistory: document.getElementById('weather-history')
 };
 
 // Estado de la aplicación
@@ -25,7 +46,11 @@ const appState = {
     drivers: [],
     alerts: [],
     auditLogs: [],
-    filter: 'all'
+    filter: 'all',
+    weatherData: {
+        locations: [],
+        history: []
+    }
 };
 
 // Utilidades
@@ -43,6 +68,58 @@ function updateLastUpdateTime() {
     elements.lastUpdate.textContent = new Date().toLocaleTimeString('es-ES');
 }
 
+// Funciones de navegación
+function setupTabNavigation() {
+    const tabs = document.querySelectorAll('.tab');
+    const tabContents = document.querySelectorAll('.tab-content');
+    
+    tabs.forEach(tab => {
+        tab.addEventListener('click', () => {
+            const tabId = tab.getAttribute('data-tab');
+            
+            // Actualizar pestañas activas
+            tabs.forEach(t => t.classList.remove('active'));
+            tab.classList.add('active');
+            
+            // Actualizar contenido activo
+            tabContents.forEach(content => {
+                content.classList.remove('active');
+                if (content.id === `${tabId}-tab`) {
+                    content.classList.add('active');
+                }
+            });
+            
+            currentTab = tabId;
+            
+            // Cargar datos específicos de la pestaña si es necesario
+            loadTabSpecificData(tabId);
+        });
+    });
+}
+
+function loadTabSpecificData(tabId) {
+    switch(tabId) {
+        case 'weather':
+            fetchWeatherData();
+            break;
+        case 'dashboard':
+            updateQuickView();
+            break;
+        case 'charging-points':
+            fetchCPs();
+            break;
+        case 'drivers':
+            fetchDrivers();
+            break;
+        case 'alerts':
+            fetchWeatherAlerts();
+            break;
+        case 'audit':
+            fetchAuditLogs();
+            break;
+    }
+}
+
 // Funciones de API
 async function testAPIConnection() {
     try {
@@ -52,6 +129,8 @@ async function testAPIConnection() {
             elements.apiStatus.className = 'status-indicator online';
             elements.apiCentralStatus.textContent = 'Online';
             elements.apiCentralStatus.className = 'status-badge online';
+            elements.dbStatus.textContent = 'Conectada';
+            elements.dbStatus.className = 'status-badge online';
             return true;
         }
     } catch (error) {
@@ -60,6 +139,8 @@ async function testAPIConnection() {
         elements.apiStatus.className = 'status-indicator offline';
         elements.apiCentralStatus.textContent = 'Offline';
         elements.apiCentralStatus.className = 'status-badge offline';
+        elements.dbStatus.textContent = 'Desconectada';
+        elements.dbStatus.className = 'status-badge offline';
         return false;
     }
 }
@@ -88,7 +169,7 @@ async function fetchCPs() {
             ubicacion: cp.ubicacion_punto_recarga || cp.ubicacion || 'N/A',
             precio: cp.precio || 0,
             estado: (cp.estado || 'DESCONECTADO').toUpperCase(),
-            temperatura: cp.temperatura || 20, // Valor por defecto si no hay temperatura
+            temperatura: cp.temperatura || 20,
             ultimaConexion: cp.ultima_conexion || cp.ultimaConexion || new Date().toISOString()
         }));
         
@@ -98,8 +179,6 @@ async function fetchCPs() {
         return true;
     } catch (error) {
         console.error('Error obteniendo CPs:', error);
-        // Mostrar datos de ejemplo si la API falla (para desarrollo)
-        
         renderCPs();
         updateSystemStats();
         return false;
@@ -149,19 +228,37 @@ async function fetchAuditLogs() {
     }
 }
 
-async function fetchStats() {
+async function fetchWeatherData() {
     try {
-        const response = await fetch(`${API_BASE_URL}/stats`);
-        if (response.ok) {
-            const stats = await response.json();
-            elements.totalCps.textContent = stats.total_cps || 0;
-            elements.activeCps.textContent = stats.active_cps || 0;
-            elements.activeAlerts.textContent = stats.active_alerts || 0;
-            return true;
+        // Obtener localizaciones configuradas
+        const locationsResponse = await fetch(`${API_BASE_URL}/weather-locations`);
+        if (locationsResponse.ok) {
+            appState.weatherData.locations = await locationsResponse.json();
+            renderWeatherLocations();
+            elements.weatherLocationsCount.textContent = appState.weatherData.locations.length;
+        } else {
+            console.error('Error en /weather-locations:', locationsResponse.status);
         }
-        return false;
+        
+        // Obtener historial meteorológico (FALTA ESTE ENDPOINT)
+        const historyResponse = await fetch(`${API_BASE_URL}/weather-history`);
+        if (historyResponse.ok) {
+            appState.weatherData.history = await historyResponse.json();
+            renderWeatherHistory();
+        } else {
+            console.error('Error en /weather-history:', historyResponse.status);
+        }
+        
+        // Obtener alertas activas desde la base de datos
+        const alertsResponse = await fetch(`${API_BASE_URL}/weather-alerts`);
+        if (alertsResponse.ok) {
+            const activeAlerts = await alertsResponse.json();
+            elements.weatherActiveAlerts.textContent = activeAlerts.length;
+        }
+        
+        return true;
     } catch (error) {
-        console.error('Error obteniendo estadísticas:', error);
+        console.error('Error obteniendo datos meteorológicos:', error);
         return false;
     }
 }
@@ -270,7 +367,6 @@ function renderAlerts() {
     
     // Mostrar alertas activas
     appState.alerts.forEach(alert => {
-        // Verificar que el CP asociado todavía está PARADO
         const cpIdMatch = alert.descripcion?.match(/CP (\d+)/);
         const cpId = cpIdMatch ? cpIdMatch[1] : null;
         
@@ -301,7 +397,6 @@ function renderAuditLogs() {
         const logItem = document.createElement('div');
         logItem.className = 'audit-item';
         
-        // Determinar icono según acción
         let icon = 'fa-info-circle';
         if (log.accion.includes('weather')) icon = 'fa-cloud';
         if (log.accion.includes('auth')) icon = 'fa-key';
@@ -319,6 +414,163 @@ function renderAuditLogs() {
         `;
         
         elements.auditContainer.appendChild(logItem);
+    });
+}
+
+function renderWeatherLocations() {
+    elements.weatherLocations.innerHTML = '';
+    
+    if (appState.weatherData.locations.length === 0) {
+        elements.weatherLocations.innerHTML = `
+            <div class="location-card">
+                <div class="location-header">
+                    <span class="location-city">Sin localizaciones configuradas</span>
+                </div>
+                <p class="location-details">Añade localizaciones para comenzar el monitoreo meteorológico</p>
+            </div>
+        `;
+        return;
+    }
+    
+    appState.weatherData.locations.forEach(location => {
+        // Buscar temperatura actual en el historial
+        const latestEvent = appState.weatherData.history
+            .filter(event => event.cp_id == location.cp_id)
+            .sort((a, b) => new Date(b.timestamp) - new Date(a.timestamp))[0];
+        
+        const temp = latestEvent ? latestEvent.temperature : 'N/D';
+        const hasAlert = latestEvent && latestEvent.alert_type === 'bajo_zero';
+        const lastUpdate = latestEvent ? formatDate(latestEvent.timestamp) : 'Nunca';
+        
+        const locationCard = document.createElement('div');
+        locationCard.className = `location-card ${hasAlert ? 'alert' : ''}`;
+        
+        locationCard.innerHTML = `
+            <div class="location-header">
+                <span class="location-city">${location.city}, ${location.country}</span>
+                <span class="location-temp ${temp < 0 ? 'warning' : ''}">
+                    ${temp}°C
+                    ${temp < 0 ? '<i class="fas fa-snowflake"></i>' : ''}
+                </span>
+            </div>
+            <div class="location-details">
+                <p><i class="fas fa-plug"></i> CP: ${location.cp_id}</p>
+                <p><i class="fas fa-clock"></i> Última actualización: ${lastUpdate}</p>
+                <p><i class="fas fa-exclamation-triangle"></i> Estado: ${hasAlert ? 'ALERTA ACTIVA' : 'Normal'}</p>
+            </div>
+        `;
+        
+        elements.weatherLocations.appendChild(locationCard);
+    });
+}
+
+function renderWeatherHistory() {
+    elements.weatherHistory.innerHTML = '';
+    
+    if (appState.weatherData.history.length === 0) {
+        elements.weatherHistory.innerHTML = `
+            <div class="weather-event">
+                <p>No hay eventos meteorológicos registrados</p>
+            </div>
+        `;
+        return;
+    }
+    
+    // Ordenar por fecha más reciente
+    const sortedHistory = [...appState.weatherData.history].sort((a, b) => 
+        new Date(b.timestamp) - new Date(a.timestamp)
+    );
+    
+    // Mostrar solo los últimos 20 eventos
+    sortedHistory.slice(0, 20).forEach(event => {
+        const eventItem = document.createElement('div');
+        eventItem.className = `weather-event ${event.alert_type === 'bajo_zero' ? 'alert' : 'normal'}`;
+        
+        let icon = 'fa-thermometer-half';
+        let status = 'Cambio de temperatura';
+        
+        if (event.alert_type === 'bajo_zero') {
+            icon = 'fa-snowflake';
+            status = 'ALERTA: Temperatura bajo cero';
+        } else if (event.alert_type === 'normal') {
+            icon = 'fa-sun';
+            status = 'Normalización: Temperatura sobre cero';
+        }
+        
+        eventItem.innerHTML = `
+            <div style="display: flex; align-items: center; gap: 10px;">
+                <i class="fas ${icon}"></i>
+                <div style="flex: 1;">
+                    <strong>${status}</strong>
+                    <p style="margin: 5px 0; color: #b0bec5;">
+                        CP ${event.cp_id}: ${event.temperature}°C
+                        ${event.source === 'simulated_weather_service' ? ' (Simulado)' : ''}
+                    </p>
+                    <small>${formatDate(event.timestamp)}</small>
+                </div>
+            </div>
+        `;
+        
+        elements.weatherHistory.appendChild(eventItem);
+    });
+}
+
+function updateQuickView() {
+    // CPs recientes (últimos 5)
+    const recentCPs = [...appState.cps]
+        .sort((a, b) => new Date(b.ultimaConexion) - new Date(a.ultimaConexion))
+        .slice(0, 5);
+    
+    elements.quickCps.innerHTML = '';
+    recentCPs.forEach(cp => {
+        const item = document.createElement('div');
+        item.className = 'quick-item';
+        item.innerHTML = `
+            <strong>CP ${cp.id}</strong> - ${cp.ubicacion}
+            <div style="display: flex; justify-content: space-between; margin-top: 5px;">
+                <span class="cp-status status-${cp.estado}" style="font-size: 0.8rem;">${cp.estado}</span>
+                <small>${formatDate(cp.ultimaConexion).split(',')[0]}</small>
+            </div>
+        `;
+        elements.quickCps.appendChild(item);
+    });
+    
+    // Últimas alertas (últimas 5)
+    const recentAlerts = [...appState.alerts]
+        .sort((a, b) => new Date(b.fecha_hora) - new Date(a.fecha_hora))
+        .slice(0, 5);
+    
+    elements.quickAlerts.innerHTML = '';
+    recentAlerts.forEach(alert => {
+        const item = document.createElement('div');
+        item.className = 'quick-item';
+        const desc = alert.descripcion || 'Alerta meteorológica';
+        item.innerHTML = `
+            <strong>⚠️ ${desc.substring(0, 50)}${desc.length > 50 ? '...' : ''}</strong>
+            <div style="margin-top: 5px;">
+                <small>${formatDate(alert.fecha_hora)}</small>
+            </div>
+        `;
+        elements.quickAlerts.appendChild(item);
+    });
+    
+    // Últimos eventos de auditoría (últimos 5)
+    const recentAudit = [...appState.auditLogs]
+        .sort((a, b) => new Date(b.fecha_hora) - new Date(a.fecha_hora))
+        .slice(0, 5);
+    
+    elements.quickAudit.innerHTML = '';
+    recentAudit.forEach(log => {
+        const item = document.createElement('div');
+        item.className = 'quick-item';
+        item.innerHTML = `
+            <strong>${log.accion}</strong>
+            <p style="margin: 5px 0; font-size: 0.9rem; color: #b0bec5;">
+                ${log.descripcion.substring(0, 60)}${log.descripcion.length > 60 ? '...' : ''}
+            </p>
+            <small>${formatDate(log.fecha_hora)}</small>
+        `;
+        elements.quickAudit.appendChild(item);
     });
 }
 
@@ -342,40 +594,59 @@ async function refreshAllData() {
         fetchDrivers(),
         fetchWeatherAlerts(),
         fetchAuditLogs(),
-        fetchStats()  // ¡AÑADE ESTA LÍNEA!
+        fetchWeatherData()
     ];
     
     await Promise.all(promises);
     updateLastUpdateTime();
+    updateQuickView();
     console.log('Datos actualizados');
 }
 
 // Event Listeners
 function setupEventListeners() {
-    // Botón de actualizar CPs
+    // Navegación por pestañas
+    setupTabNavigation();
+    
+    // Botones de actualizar
     document.getElementById('refresh-cps').addEventListener('click', () => {
         fetchCPs();
         showNotification('CPs actualizados', 'success');
     });
     
-    // Botón de actualizar conductores
     document.getElementById('refresh-drivers').addEventListener('click', () => {
         fetchDrivers();
         showNotification('Conductores actualizados', 'success');
     });
     
-    // Botón de actualizar alertas
     document.getElementById('refresh-alerts').addEventListener('click', () => {
         fetchWeatherAlerts();
         showNotification('Alertas actualizadas', 'success');
     });
-
-    // Botón para simular alerta
+    
+    document.getElementById('refresh-audit').addEventListener('click', () => {
+        fetchAuditLogs();
+        showNotification('Auditoría actualizada', 'success');
+    });
+    
+    document.getElementById('refresh-weather').addEventListener('click', () => {
+        fetchWeatherData();
+        showNotification('Datos meteorológicos actualizados', 'success');
+    });
+    
+    // Botones del monitor meteorológico
+    document.getElementById('add-location').addEventListener('click', () => {
+        showAddLocationModal();
+    });
+    
+    document.getElementById('change-location').addEventListener('click', () => {
+        showChangeLocationModal();
+    });
+    
     document.getElementById('simulate-alert').addEventListener('click', () => {
         showTemperatureModal('alert');
     });
     
-    // Botón para quitar alerta
     document.getElementById('remove-alert').addEventListener('click', () => {
         showTemperatureModal('remove');
     });
@@ -390,7 +661,7 @@ function setupEventListeners() {
     refreshInterval = setInterval(refreshAllData, 30000);
 }
 
-// Funciones para simular alertas meteorológicas (como si vinieran del EV_W)
+// Modales
 function showTemperatureModal(action) {
     const modal = document.createElement('div');
     modal.className = 'modal';
@@ -399,7 +670,7 @@ function showTemperatureModal(action) {
     const title = action === 'alert' ? 'Simular Alerta' : 'Simular Normalización';
     const cpId = prompt("Introduce el ID del punto de carga:", "1");
     
-    if (!cpId) return; // Si el usuario cancela
+    if (!cpId) return;
     
     modal.innerHTML = `
         <div class="modal-content">
@@ -427,7 +698,6 @@ function showTemperatureModal(action) {
     document.body.appendChild(modal);
     modal.style.display = 'flex';
     
-    // Event listeners del modal
     const tempInput = modal.querySelector('#temperature');
     tempInput.focus();
     
@@ -439,7 +709,6 @@ function showTemperatureModal(action) {
         const temperature = parseFloat(tempInput.value);
         const errorEl = modal.querySelector('#modal-error');
         
-        // Validaciones
         if (isNaN(temperature)) {
             errorEl.textContent = 'Por favor, introduce una temperatura válida';
             errorEl.style.display = 'block';
@@ -458,23 +727,13 @@ function showTemperatureModal(action) {
             return;
         }
         
-        // Determinar el tipo de alerta como lo haría el EV_W
-        let alertType;
+        let alertType = action === 'alert' ? 'bajo_zero' : 'normal';
         
-        if (action === 'alert') {
-            // Si temperatura < 0, es alerta 'bajo_zero'
-            alertType = 'bajo_zero';
-        } else {
-            // Si temperatura >= 0, es 'normal'
-            alertType = 'normal';
-        }
-        
-        // Datos que enviaría el EV_W (OpenWeather)
         const evwData = {
             cp_id: cpId,
             alert_type: alertType,
             temperature: temperature,
-            source: 'simulated_weather_service', // Para identificar que es simulado
+            source: 'simulated_weather_service',
             timestamp: new Date().toISOString()
         };
         
@@ -492,7 +751,6 @@ function showTemperatureModal(action) {
             if (response.ok) {
                 const result = await response.json();
                 
-                // Mostrar mensaje apropiado
                 if (action === 'alert') {
                     showNotification(
                         `⚠️ Alerta meteorológica simulada enviada: CP ${cpId} a ${temperature}°C`,
@@ -507,7 +765,6 @@ function showTemperatureModal(action) {
                 
                 console.log('Respuesta del servidor:', result);
                 
-                // Actualizar datos automáticamente
                 setTimeout(() => {
                     refreshAllData();
                 }, 1000);
@@ -524,18 +781,15 @@ function showTemperatureModal(action) {
             );
         }
         
-        // Cerrar modal
         document.body.removeChild(modal);
     });
     
-    // Cerrar al hacer clic fuera
     modal.addEventListener('click', (e) => {
         if (e.target === modal) {
             document.body.removeChild(modal);
         }
     });
     
-    // Cerrar con ESC
     document.addEventListener('keydown', function closeModal(e) {
         if (e.key === 'Escape' && document.body.contains(modal)) {
             document.body.removeChild(modal);
@@ -544,9 +798,242 @@ function showTemperatureModal(action) {
     });
 }
 
+function showAddLocationModal() {
+    const modal = document.createElement('div');
+    modal.className = 'modal';
+    
+    modal.innerHTML = `
+        <div class="modal-content">
+            <h3><i class="fas fa-map-marker-alt"></i> Añadir Nueva Localización</h3>
+            <p style="color: #90a4ae; margin-bottom: 20px; text-align: center;">
+                Configurar nueva ciudad para monitoreo meteorológico
+            </p>
+            
+            <div class="temp-input-group">
+                <label for="cp-id">ID del Punto de Carga:</label>
+                <input type="text" id="cp-id" placeholder="Ej: 1, 2, 3...">
+            </div>
+            
+            <div class="temp-input-group">
+                <label for="city">Ciudad:</label>
+                <input type="text" id="city" placeholder="Ej: Madrid">
+            </div>
+            
+            <div class="temp-input-group">
+                <label for="country">País:</label>
+                <select id="country">
+                    <option value="ES">España</option>
+                    <option value="FR">Francia</option>
+                    <option value="DE">Alemania</option>
+                    <option value="IT">Italia</option>
+                    <option value="PT">Portugal</option>
+                    <option value="UK">Reino Unido</option>
+                    <option value="US">Estados Unidos</option>
+                </select>
+            </div>
+            
+            <div class="modal-error" id="modal-error"></div>
+            
+            <div class="modal-buttons">
+                <button id="cancel-modal" class="btn btn-secondary">Cancelar</button>
+                <button id="confirm-modal" class="btn btn-success">
+                    <i class="fas fa-plus-circle"></i> Añadir Localización
+                </button>
+            </div>
+        </div>
+    `;
+    
+    document.body.appendChild(modal);
+    modal.style.display = 'flex';
+    
+    modal.querySelector('#cp-id').focus();
+    
+    modal.querySelector('#cancel-modal').addEventListener('click', () => {
+        document.body.removeChild(modal);
+    });
+    
+    modal.querySelector('#confirm-modal').addEventListener('click', async () => {
+        const cpId = modal.querySelector('#cp-id').value.trim();
+        const city = modal.querySelector('#city').value.trim();
+        const country = modal.querySelector('#country').value;
+        const errorEl = modal.querySelector('#modal-error');
+        
+        if (!cpId || !city) {
+            errorEl.textContent = 'Por favor, completa todos los campos';
+            errorEl.style.display = 'block';
+            return;
+        }
+        
+        try {
+            const response = await fetch(`${API_BASE_URL}/weather-locations`, {
+                method: 'POST',
+                headers: {
+                    'Content-Type': 'application/json'
+                },
+                body: JSON.stringify({
+                    cp_id: cpId,
+                    city: city,
+                    country: country
+                })
+            });
+            
+            if (response.ok) {
+                showNotification(
+                    `✅ Localización añadida: ${city}, ${country} para CP ${cpId}`,
+                    'success'
+                );
+                
+                // Actualizar datos meteorológicos
+                setTimeout(() => {
+                    fetchWeatherData();
+                }, 1000);
+                
+                document.body.removeChild(modal);
+            } else {
+                throw new Error('Error al añadir localización');
+            }
+        } catch (error) {
+            errorEl.textContent = 'Error al añadir localización. Verifica la conexión con el servidor.';
+            errorEl.style.display = 'block';
+        }
+    });
+    
+    modal.addEventListener('click', (e) => {
+        if (e.target === modal) {
+            document.body.removeChild(modal);
+        }
+    });
+}
+
+function showChangeLocationModal() {
+    const modal = document.createElement('div');
+    modal.className = 'modal';
+    
+    modal.innerHTML = `
+        <div class="modal-content">
+            <h3><i class="fas fa-exchange-alt"></i> Cambiar Ciudad de CP</h3>
+            <p style="color: #90a4ae; margin-bottom: 20px; text-align: center;">
+                Cambiar la ciudad monitoreada para un punto de carga existente
+            </p>
+            
+            <div class="temp-input-group">
+                <label for="cp-id-change">ID del Punto de Carga:</label>
+                <input type="text" id="cp-id-change" placeholder="Ej: 1">
+            </div>
+            
+            <div class="temp-input-group">
+                <label for="new-city">Nueva Ciudad:</label>
+                <input type="text" id="new-city" placeholder="Ej: Barcelona">
+            </div>
+            
+            <div class="temp-input-group">
+                <label for="new-country">Nuevo País:</label>
+                <select id="new-country">
+                    <option value="ES">España</option>
+                    <option value="FR">Francia</option>
+                    <option value="DE">Alemania</option>
+                    <option value="IT">Italia</option>
+                    <option value="PT">Portugal</option>
+                    <option value="UK">Reino Unido</option>
+                    <option value="US">Estados Unidos</option>
+                </select>
+            </div>
+            
+            <div class="modal-error" id="modal-error"></div>
+            
+            <div class="modal-buttons">
+                <button id="cancel-modal" class="btn btn-secondary">Cancelar</button>
+                <button id="confirm-modal" class="btn btn-warning">
+                    <i class="fas fa-exchange-alt"></i> Cambiar Ciudad
+                </button>
+            </div>
+        </div>
+    `;
+    
+    document.body.appendChild(modal);
+    modal.style.display = 'flex';
+    
+    modal.querySelector('#cp-id-change').focus();
+    
+    modal.querySelector('#cancel-modal').addEventListener('click', () => {
+        document.body.removeChild(modal);
+    });
+
+    document.querySelector('#confirm-modal').addEventListener('click', async () => {
+        const cpId = modal.querySelector('#cp-id-change').value.trim();
+        const newCity = modal.querySelector('#new-city').value.trim();
+        const newCountry = modal.querySelector('#new-country').value;
+        const errorEl = modal.querySelector('#modal-error');
+        
+        if (!cpId || !newCity) {
+            errorEl.textContent = 'Por favor, completa todos los campos';
+            errorEl.style.display = 'block';
+            return;
+        }
+        
+        try {
+            const response = await fetch(`${API_BASE_URL}/weather-locations/${cpId}`, {
+                method: 'PUT',
+                headers: {
+                    'Content-Type': 'application/json'
+                },
+                body: JSON.stringify({
+                    city: newCity,
+                    country: newCountry,
+                    force_refresh: true  // Bandera para forzar actualización
+                })
+            });
+            
+            if (response.ok) {
+                showNotification(
+                    `✅ Ciudad cambiada para CP ${cpId}: ${newCity}, ${newCountry}`,
+                    'success'
+                );
+                
+                // FORZAR una actualización inmediata de datos meteorológicos
+                setTimeout(() => {
+                    fetchWeatherData();
+                    
+                    // También notificar a EV_W que cambió la ciudad
+                    notifyWeatherService(cpId, newCity, newCountry);
+                }, 500);
+                
+                document.body.removeChild(modal);
+            } else {
+                throw new Error('Error al cambiar ciudad');
+            }
+        } catch (error) {
+            errorEl.textContent = 'Error al cambiar ciudad. Verifica que el CP exista.';
+            errorEl.style.display = 'block';
+        }
+    });
+
+    // Función auxiliar para notificar a EV_W
+
+    async function notifyWeatherService(cpId, city, country) {
+        try {
+            console.log(`🔄 Forzando actualización en EV_W para CP ${cpId} -> ${city}, ${country}`);
+            
+            // Forzar una nueva verificación de temperaturas después de 2 segundos
+            setTimeout(() => {
+                console.log(`Forzando actualización de temperaturas para CP ${cpId}`);
+                fetchWeatherData();
+            }, 2000);
+            
+        } catch (error) {
+            console.error('Error notificando a EV_W:', error);
+        }
+    }
+    
+    modal.addEventListener('click', (e) => {
+        if (e.target === modal) {
+            document.body.removeChild(modal);
+        }
+    });
+}
+
 // Utilidades adicionales
 function showNotification(message, type = 'info') {
-    // Crear notificación temporal
     const notification = document.createElement('div');
     notification.className = `notification ${type}`;
     notification.textContent = message;
@@ -566,13 +1053,14 @@ function showNotification(message, type = 'info') {
         notification.style.background = 'linear-gradient(135deg, #4caf50 0%, #388e3c 100%)';
     } else if (type === 'error') {
         notification.style.background = 'linear-gradient(135deg, #f44336 0%, #d32f2f 100%)';
+    } else if (type === 'warning') {
+        notification.style.background = 'linear-gradient(135deg, #ff9800 0%, #f57c00 100%)';
     } else {
         notification.style.background = 'linear-gradient(135deg, #2196f3 0%, #1976d2 100%)';
     }
     
     document.body.appendChild(notification);
     
-    // Remover después de 3 segundos
     setTimeout(() => {
         notification.style.animation = 'slideOut 0.3s ease';
         setTimeout(() => notification.remove(), 300);
@@ -602,11 +1090,6 @@ style.textContent = `
             transform: translateX(100%);
             opacity: 0;
         }
-    }
-    
-    .temperature-warning {
-        color: #ff9800 !important;
-        font-weight: bold;
     }
 `;
 document.head.appendChild(style);
