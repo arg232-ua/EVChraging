@@ -16,7 +16,7 @@ registry.use(bodyParser.json());
 
 // Conexión MySQL
 const connection = mysql.createConnection({
-    host: '172.23.64.1',
+    host: '127.0.0.1',
     user: 'sd_remoto',
     password: '1234',
     database: 'evcharging'

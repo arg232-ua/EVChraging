@@ -1,8 +1,8 @@
 -- --------------------------------------------------------
--- Host:                         localhost
--- Versión del servidor:         10.4.32-MariaDB - mariadb.org binary distribution
+-- Host:                         127.0.0.1
+-- Versión del servidor:         8.0.44 - MySQL Community Server - GPL
 -- SO del servidor:              Win64
--- HeidiSQL Versión:             12.6.0.6765
+-- HeidiSQL Versión:             12.12.0.7122
 -- --------------------------------------------------------
 
 /*!40101 SET @OLD_CHARACTER_SET_CLIENT=@@CHARACTER_SET_CLIENT */;
@@ -16,18 +16,18 @@
 
 
 -- Volcando estructura de base de datos para evcharging
-CREATE DATABASE IF NOT EXISTS `evcharging` /*!40100 DEFAULT CHARACTER SET utf8mb4 COLLATE utf8mb4_general_ci */;
+CREATE DATABASE IF NOT EXISTS `evcharging` /*!40100 DEFAULT CHARACTER SET utf8mb4 COLLATE utf8mb4_general_ci */ /*!80016 DEFAULT ENCRYPTION='N' */;
 USE `evcharging`;
 
 -- Volcando estructura para tabla evcharging.auditoria
 CREATE TABLE IF NOT EXISTS `auditoria` (
-  `id_auditoria` int(11) NOT NULL AUTO_INCREMENT,
+  `id_auditoria` int NOT NULL AUTO_INCREMENT,
   `fecha_hora` datetime NOT NULL,
-  `ip_origen` varchar(45) DEFAULT NULL,
-  `accion` varchar(50) NOT NULL,
-  `descripcion` text DEFAULT NULL,
+  `ip_origen` varchar(45) COLLATE utf8mb4_general_ci DEFAULT NULL,
+  `accion` varchar(50) COLLATE utf8mb4_general_ci NOT NULL,
+  `descripcion` text COLLATE utf8mb4_general_ci,
   PRIMARY KEY (`id_auditoria`)
-) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_general_ci;
+) ENGINE=InnoDB AUTO_INCREMENT=35 DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_general_ci;
 
 -- Volcando datos para la tabla evcharging.auditoria: ~34 rows (aproximadamente)
 DELETE FROM `auditoria`;
@@ -102,26 +102,26 @@ INSERT INTO `auditoria` (`id_auditoria`, `fecha_hora`, `ip_origen`, `accion`, `d
 
 -- Volcando estructura para tabla evcharging.central
 CREATE TABLE IF NOT EXISTS `central` (
-  `id_central` varchar(10) NOT NULL,
-  `ubicacion_central` varchar(255) DEFAULT NULL,
-  `email_central` varchar(50) DEFAULT NULL,
+  `id_central` varchar(10) COLLATE utf8mb4_general_ci NOT NULL,
+  `ubicacion_central` varchar(255) COLLATE utf8mb4_general_ci DEFAULT NULL,
+  `email_central` varchar(50) COLLATE utf8mb4_general_ci DEFAULT NULL,
   PRIMARY KEY (`id_central`)
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_general_ci;
 
--- Volcando datos para la tabla evcharging.central: ~1 rows (aproximadamente)
+-- Volcando datos para la tabla evcharging.central: ~0 rows (aproximadamente)
 DELETE FROM `central`;
 INSERT INTO `central` (`id_central`, `ubicacion_central`, `email_central`) VALUES
 	('0039051', 'EPS 4 - Universidad de Alicante', 'sistemasdistribuidos2526ua@gmail.com');
 
 -- Volcando estructura para tabla evcharging.conductor
 CREATE TABLE IF NOT EXISTS `conductor` (
-  `id_conductor` varchar(10) NOT NULL,
-  `nombre` varchar(50) NOT NULL,
-  `apellidos` varchar(100) NOT NULL,
-  `email_conductor` varchar(50) NOT NULL,
-  `telefono_conductor` varchar(16) NOT NULL,
-  `dni_conductor` varchar(10) NOT NULL,
-  `estado` varchar(50) DEFAULT 'Desconectado'
+  `id_conductor` varchar(10) COLLATE utf8mb4_general_ci NOT NULL,
+  `nombre` varchar(50) COLLATE utf8mb4_general_ci NOT NULL,
+  `apellidos` varchar(100) COLLATE utf8mb4_general_ci NOT NULL,
+  `email_conductor` varchar(50) COLLATE utf8mb4_general_ci NOT NULL,
+  `telefono_conductor` varchar(16) COLLATE utf8mb4_general_ci NOT NULL,
+  `dni_conductor` varchar(10) COLLATE utf8mb4_general_ci NOT NULL,
+  `estado` varchar(50) COLLATE utf8mb4_general_ci DEFAULT 'Desconectado'
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_general_ci;
 
 -- Volcando datos para la tabla evcharging.conductor: ~16 rows (aproximadamente)
@@ -161,49 +161,43 @@ INSERT INTO `conductor` (`id_conductor`, `nombre`, `apellidos`, `email_conductor
 
 -- Volcando estructura para tabla evcharging.punto_recarga
 CREATE TABLE IF NOT EXISTS `punto_recarga` (
-  `id_punto_recarga` int(11) NOT NULL AUTO_INCREMENT,
-  `id_central` varchar(10) NOT NULL,
-  `ubicacion_punto_recarga` varchar(255) NOT NULL,
+  `id_punto_recarga` int NOT NULL AUTO_INCREMENT,
+  `id_central` varchar(10) COLLATE utf8mb4_general_ci NOT NULL,
+  `ubicacion_punto_recarga` varchar(255) COLLATE utf8mb4_general_ci NOT NULL,
   `precio` decimal(8,3) NOT NULL,
-  `estado` varchar(20) DEFAULT NULL,
-  `temperatura` decimal(4,1) DEFAULT 20.0,
-  `ultima_actualizacion` timestamp NOT NULL DEFAULT current_timestamp() ON UPDATE current_timestamp(),
-  `activo` tinyint(1) NOT NULL DEFAULT 1,
-  `credencial` varchar(255) DEFAULT NULL,
-  `tiene_clave_simetrica` tinyint(1) NOT NULL DEFAULT 0,
+  `estado` varchar(20) COLLATE utf8mb4_general_ci DEFAULT NULL,
+  `temperatura` decimal(4,1) DEFAULT '20.0',
+  `ultima_actualizacion` timestamp NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
+  `activo` tinyint(1) NOT NULL DEFAULT '1',
+  `credencial` varchar(255) COLLATE utf8mb4_general_ci DEFAULT NULL,
+  `tiene_clave_simetrica` tinyint(1) NOT NULL DEFAULT '0',
+  `cp_logico` int DEFAULT NULL,
   PRIMARY KEY (`id_punto_recarga`),
+  UNIQUE KEY `cp_logico` (`cp_logico`),
   KEY `fk_punto_recarga_central` (`id_central`),
   CONSTRAINT `fk_punto_recarga_central` FOREIGN KEY (`id_central`) REFERENCES `central` (`id_central`) ON DELETE CASCADE
-) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_general_ci;
+) ENGINE=InnoDB AUTO_INCREMENT=10 DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_general_ci;
 
--- Volcando datos para la tabla evcharging.punto_recarga: ~3 rows (aproximadamente)
+-- Volcando datos para la tabla evcharging.punto_recarga: ~9 rows (aproximadamente)
 DELETE FROM `punto_recarga`;
-INSERT INTO `punto_recarga` (`id_punto_recarga`, `id_central`, `ubicacion_punto_recarga`, `precio`, `estado`, `temperatura`, `ultima_actualizacion`, `activo`, `credencial`, `tiene_clave_simetrica`) VALUES
-	(1, '0039051', 'PRUEBA3', 1.150, 'DESCONECTADO', 5.0, '2025-12-12 13:50:34', 1, NULL, 0);
-INSERT INTO `punto_recarga` (`id_punto_recarga`, `id_central`, `ubicacion_punto_recarga`, `precio`, `estado`, `temperatura`, `ultima_actualizacion`, `activo`, `credencial`, `tiene_clave_simetrica`) VALUES
-	(2, '0039051', 'Zona 2 – EPS 4 – Universidad de Alicante', 0.350, 'DESCONECTADO', 12.7, '2025-12-11 19:39:11', 1, NULL, 0);
-INSERT INTO `punto_recarga` (`id_punto_recarga`, `id_central`, `ubicacion_punto_recarga`, `precio`, `estado`, `temperatura`, `ultima_actualizacion`, `activo`, `credencial`, `tiene_clave_simetrica`) VALUES
-	(3, '0039051', 'Zona 3 – EPS 4 – Universidad de Alicante', 0.350, 'DESCONECTADO', 8.5, '2025-12-11 19:39:11', 1, NULL, 0);
-
--- Volcando estructura para disparador evcharging.generar_id_conductor
-SET @OLDTMP_SQL_MODE=@@SQL_MODE, SQL_MODE='NO_ZERO_IN_DATE,NO_ZERO_DATE,NO_ENGINE_SUBSTITUTION';
-DELIMITER //
-CREATE TRIGGER generar_id_conductor
-BEFORE INSERT ON conductor
-FOR EACH ROW
-BEGIN
-    DECLARE max_numero INT;
-    
-    -- Encontrar el número máximo actual
-    SELECT IFNULL(MAX(CAST(SUBSTRING(id_conductor, 4) AS UNSIGNED)), 0) 
-    INTO max_numero 
-    FROM conductor;
-    
-    -- Generar nuevo ID
-    SET NEW.id_conductor = CONCAT('AAA', (max_numero + 1));
-END//
-DELIMITER ;
-SET SQL_MODE=@OLDTMP_SQL_MODE;
+INSERT INTO `punto_recarga` (`id_punto_recarga`, `id_central`, `ubicacion_punto_recarga`, `precio`, `estado`, `temperatura`, `ultima_actualizacion`, `activo`, `credencial`, `tiene_clave_simetrica`, `cp_logico`) VALUES
+	(1, '0039051', 'PRUEBA3', 1.150, 'DESCONECTADO', 5.0, '2025-12-13 15:43:41', 1, NULL, 0, 1);
+INSERT INTO `punto_recarga` (`id_punto_recarga`, `id_central`, `ubicacion_punto_recarga`, `precio`, `estado`, `temperatura`, `ultima_actualizacion`, `activo`, `credencial`, `tiene_clave_simetrica`, `cp_logico`) VALUES
+	(2, '0039051', 'Zona 2 – EPS 4 – Universidad de Alicante', 0.350, 'DESCONECTADO', 12.7, '2025-12-13 16:16:54', 1, '21def710ca112b069c79515772b24cdc070cd0ddc553e1f3', 0, 2);
+INSERT INTO `punto_recarga` (`id_punto_recarga`, `id_central`, `ubicacion_punto_recarga`, `precio`, `estado`, `temperatura`, `ultima_actualizacion`, `activo`, `credencial`, `tiene_clave_simetrica`, `cp_logico`) VALUES
+	(3, '0039051', 'Zona 3 – EPS 4 – Universidad de Alicante', 0.350, 'DESCONECTADO', 8.5, '2025-12-13 16:29:33', 1, '58f94002581bee22a141a81376caa2c2568162eb6b35a166', 0, 3);
+INSERT INTO `punto_recarga` (`id_punto_recarga`, `id_central`, `ubicacion_punto_recarga`, `precio`, `estado`, `temperatura`, `ultima_actualizacion`, `activo`, `credencial`, `tiene_clave_simetrica`, `cp_logico`) VALUES
+	(4, '0039051', 'CP 1 – EPS', 0.350, 'DESCONECTADO', 20.0, '2025-12-13 12:49:49', 1, 'b98c1e64458567ed414b974ce08f3b94b50d08d2549f2c17', 0, NULL);
+INSERT INTO `punto_recarga` (`id_punto_recarga`, `id_central`, `ubicacion_punto_recarga`, `precio`, `estado`, `temperatura`, `ultima_actualizacion`, `activo`, `credencial`, `tiene_clave_simetrica`, `cp_logico`) VALUES
+	(5, '0039051', 'CP 1 – EPS', 0.350, 'DESCONECTADO', 20.0, '2025-12-13 15:30:07', 1, 'fa8915f6cea0c0c25c5b2515b5b020508a7c5d3288d6374e', 0, NULL);
+INSERT INTO `punto_recarga` (`id_punto_recarga`, `id_central`, `ubicacion_punto_recarga`, `precio`, `estado`, `temperatura`, `ultima_actualizacion`, `activo`, `credencial`, `tiene_clave_simetrica`, `cp_logico`) VALUES
+	(6, '0039051', 'CP 2 – EPS', 0.350, 'DESCONECTADO', 20.0, '2025-12-13 16:08:56', 1, '134d81daa1fe8139093ecd1759c98bbee1e2c044e2303214', 0, NULL);
+INSERT INTO `punto_recarga` (`id_punto_recarga`, `id_central`, `ubicacion_punto_recarga`, `precio`, `estado`, `temperatura`, `ultima_actualizacion`, `activo`, `credencial`, `tiene_clave_simetrica`, `cp_logico`) VALUES
+	(7, '0039051', 'CP 7 – EPS', 0.350, 'DESCONECTADO', 20.0, '2025-12-13 16:30:18', 1, 'ecb7f2b7f5bb4a96e4b66ee8362a2b5b144d93a59b9a8557', 0, 7);
+INSERT INTO `punto_recarga` (`id_punto_recarga`, `id_central`, `ubicacion_punto_recarga`, `precio`, `estado`, `temperatura`, `ultima_actualizacion`, `activo`, `credencial`, `tiene_clave_simetrica`, `cp_logico`) VALUES
+	(8, '0039051', 'CP 8 – EPS', 0.350, 'DESCONECTADO', 20.0, '2025-12-13 16:36:04', 1, '71e97c9c6bf08f63ca02dce1ea0549f1fb29cce9fdd3ff4a', 0, 8);
+INSERT INTO `punto_recarga` (`id_punto_recarga`, `id_central`, `ubicacion_punto_recarga`, `precio`, `estado`, `temperatura`, `ultima_actualizacion`, `activo`, `credencial`, `tiene_clave_simetrica`, `cp_logico`) VALUES
+	(9, '0039051', 'CP 9 – EPS', 0.350, 'DESCONECTADO', 20.0, '2025-12-13 16:40:44', 1, '6e95067f3bcbd93ce0602401aad3de278614a53cbd94cadf', 0, 9);
 
 /*!40103 SET TIME_ZONE=IFNULL(@OLD_TIME_ZONE, 'system') */;
 /*!40101 SET SQL_MODE=IFNULL(@OLD_SQL_MODE, '') */;
