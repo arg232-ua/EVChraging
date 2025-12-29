@@ -4,6 +4,7 @@ import socket
 import threading
 import requests
 import json
+import os
 
 # ==========================
 #  CONFIGURACIÓN REGISTRY
@@ -59,13 +60,14 @@ def ping_engine(engine_addr, cp_id, timeout=2.0):
 def enviar_central(central_addr, texto, timeout=1.0):
     return enviar_linea(central_addr, texto, timeout=timeout)
 
-def enviar_auth_central(central_addr, texto, timeout=2.0):
+def enviar_auth_central(central_addr, texto, timeout=12.0):
     host, port = parse_host_port(central_addr)
     try:
         with socket.create_connection((host, port), timeout=timeout) as s:
             s.sendall((texto.strip() + "\n").encode("utf-8"))
             s.settimeout(timeout)
-            resp = s.recv(1024).decode("utf-8").strip()
+            resp = s.recv(1024).decode("utf-8", errors="ignore")
+            resp = resp.splitlines()[0].strip()
             return resp
     except Exception as e:
         print(f"[EV_CP_M] Error enviando AUTH a Central: {e}")
@@ -75,24 +77,56 @@ def enviar_auth_central(central_addr, texto, timeout=2.0):
 #  FUNCIONES REGISTRO / CRED
 # ==========================
 
-def guardar_credencial(id_cp, credencial):
-    """Guarda en disco la credencial del CP."""
-    data = {"id_cp": id_cp, "credencial": credencial}
-    with open(CRED_FILE, "w") as f:
-        json.dump(data, f)
-    print(f"[EV_CP_M] Credencial guardada localmente ({CRED_FILE}): {credencial}")
+import json
 
+def cred_file(cp_id):
+    return f"credencial_cp_{cp_id}.json"
 
-def cargar_credencial():
-    """Carga la credencial del fichero, si existe. Devuelve dict o None."""
+def guardar_credencial(cp_id, credencial, id_cp_bd=None):
+    data = {
+        "cp_logico": int(cp_id),
+        "id_cp_bd": int(id_cp_bd) if id_cp_bd is not None else int(cp_id),
+        "credencial": credencial
+    }
+    with open(cred_file(cp_id), "w", encoding="utf-8") as f:
+        json.dump(data, f, ensure_ascii=False, indent=2)
+    print(f"[EV_CP_M] Credencial guardada localmente ({cred_file(cp_id)}).")
+
+def cargar_credencial(cp_id):
     try:
-        with open(CRED_FILE, "r") as f:
+        with open(cred_file(cp_id), "r", encoding="utf-8") as f:
             return json.load(f)
     except FileNotFoundError:
         return None
-    except Exception as e:
-        print(f"[EV_CP_M] Error leyendo {CRED_FILE}: {e}")
+
+
+# ==========================
+#  FUNCIONES REGISTRO / CLAVE
+# ==========================
+
+def key_file(cp_id):
+    return f"clave_simetrica_cp_{cp_id}.json"
+
+def guardar_clave_simetrica(cp_id, clave):
+    with open(key_file(cp_id), "w", encoding="utf-8") as f:
+        json.dump({"cp_logico": int(cp_id), "clave": clave}, f, indent=2)
+    print(f"[EV_CP_M] Clave simétrica guardada ({key_file(cp_id)}).")
+
+def cargar_clave_simetrica(cp_id):
+    try:
+        with open(key_file(cp_id), "r", encoding="utf-8") as f:
+            return json.load(f).get("clave")
+    except FileNotFoundError:
         return None
+
+def borrar_clave_simetrica(cp_id):
+    try:
+        os.remove(key_file(cp_id))
+        print(f"[EV_CP_M] Clave simétrica eliminada ({key_file(cp_id)}).")
+    except FileNotFoundError:
+        pass
+
+
 
 
 def registrar_cp_en_registry(id_cp):
@@ -126,7 +160,7 @@ def registrar_cp_en_registry(id_cp):
             return False
 
         cred = data["credencial"]
-        guardar_credencial(id_cp, cred)
+        guardar_credencial(id_cp, cred, id_cp_bd=data.get("id_punto_recarga"))
         print(f"[EV_CP_M] Registro en EV_Registry OK. ID_CP_BD={data.get('id_punto_recarga')}  Credencial={cred}")
         return True
 
@@ -182,7 +216,8 @@ def menu_monitor(engine_addr, central_addr, cp_id):
         print("3. Simular RECUPERACIÓN Engine")
         print("4. Simular RECUPERACIÓN Monitor")
         print("5. Verificar conexión con ENGINE")
-        print("6. Salir")
+        print("6. Reautenticar (obtener nueva clave)")
+        print("7. Salir")
         print("="*45)
 
         opcion = input("Seleccione una opción (1-6): ").strip()
@@ -203,6 +238,30 @@ def menu_monitor(engine_addr, central_addr, cp_id):
             ok = ping_engine(engine_addr, cp_id)
             print(f"[EV_CP_M] Verificación con Engine -> {'OK' if ok else 'KO'}")
         elif opcion == "6":
+            # 1) borrar clave local
+            borrar_clave_simetrica(cp_id)
+
+            # 2) cargar credencial
+            cred = cargar_credencial(cp_id)
+            if not cred:
+                print("[EV_CP_M] No hay credencial local. Debes registrarte primero.")
+                continue
+
+            id_cp_bd = cred.get("id_cp_bd", cp_id)
+            credencial = cred["credencial"]
+
+            # 3) AUTH otra vez
+            resp = enviar_auth_central(central_addr, f"AUTH {id_cp_bd} {credencial}", timeout=12.0)
+            print(f"[EV_CP_M] Respuesta Central: {resp}")
+
+            if resp and resp.startswith("AUTH_OK"):
+                _, clave = resp.split(maxsplit=1)
+                guardar_clave_simetrica(cp_id, clave)
+                print("[EV_CP_M] Reautenticación correcta. Nueva clave guardada.")
+            else:
+                print("[EV_CP_M] Reautenticación FALLIDA.")
+    
+        elif opcion == "7":
             print("[EV_CP_M] Saliendo del menú...")
             break
         else:
@@ -233,28 +292,28 @@ def main():
     print(f"[EV_CP_M] Monitor iniciado. CP_ID={cp_id} | Engine={engine_addr} | Central={central_addr}")
 
     # 1) Comprobar si ya tenemos credencial guardada
-    cred = cargar_credencial()
+    cred = cargar_credencial(cp_id)
     if not cred:
         print("[EV_CP_M] No existe credencial local. Registrando CP en EV_Registry (HTTPS)...")
         if not registrar_cp_en_registry(cp_id):
             print("[EV_CP_M] Registro en EV_Registry FALLIDO. No se puede iniciar el CP.")
             sys.exit(1)
-        cred = cargar_credencial()
+        cred = cargar_credencial(cp_id)
 
-    id_cp_bd = str(cred["id_cp"])
+    cred = cargar_credencial(cp_id)
+    id_cp_bd = cred.get("id_cp_bd", cp_id)  # fallback por si JSON viejo
     credencial = cred["credencial"]
-    print(f"[EV_CP_M] Credencial cargada. ID_CP_BD={id_cp_bd}")
 
     # 2) AUTH a CENTRAL
     auth_msg = f"AUTH {id_cp_bd} {credencial}"
-    resp = enviar_auth_central(central_addr, f"AUTH {id_cp_bd} {credencial}")
+    resp = enviar_auth_central(central_addr, auth_msg, timeout=12.0)
     print(f"[EV_CP_M] Respuesta Central: {resp}")
 
     if resp and resp.startswith("AUTH_OK"):
         _, clave = resp.split(maxsplit=1)
-        with open("clave_simetrica.json", "w") as f:
-            json.dump({"clave_simetrica": clave}, f)
+        guardar_clave_simetrica(cp_id, clave)
         print("[EV_CP_M] Autenticación correcta. Clave simétrica guardada.")
+
     else:
         print("[EV_CP_M] Autenticación FALLIDA con Central.")
         sys.exit(1)

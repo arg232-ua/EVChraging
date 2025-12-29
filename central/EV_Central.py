@@ -7,7 +7,8 @@ import mysql.connector
 import socket
 import os
 import secrets
-
+import base64
+from cryptography.hazmat.primitives.ciphers.aead import AESGCM
 # TOPICS
 TOPIC_REGISTROS = "registros_cp"
 TOPIC_COMANDOS  = "comandos_cp"
@@ -94,7 +95,40 @@ class EV_Central: # Clase Central (Principal para la práctica)
         self.inicio = time.time()
         print(f"Central inicializada y conectada a Kafka: {servidor_kafka}")
         self.notificar_central_operativa() # Notificar que la central está operativa
+    def _get_key_hex(self, cp_id: str):
+        return (self.cps.get(str(cp_id)) or {}).get("clave_simetrica")
 
+    def _encrypt_for_cp(self, cp_id: str, payload: dict) -> dict:
+        clave_hex = self._get_key_hex(cp_id)
+        if not clave_hex:
+            raise RuntimeError(f"CP {cp_id} sin clave en memoria (REAUTH requerido)")
+
+        key = bytes.fromhex(clave_hex)
+        aesgcm = AESGCM(key)
+        nonce = os.urandom(12)
+        pt = json.dumps(payload, ensure_ascii=False).encode("utf-8")
+        ct = aesgcm.encrypt(nonce, pt, None)
+
+        return {
+            "cp_id": str(cp_id),
+            "alg": "AESGCM",
+            "nonce": base64.b64encode(nonce).decode("ascii"),
+            "enc": base64.b64encode(ct).decode("ascii")
+        }
+
+    def _decrypt_from_cp(self, wrapper: dict) -> dict:
+        cp_id = str(wrapper.get("cp_id"))
+        clave_hex = self._get_key_hex(cp_id)
+        if not clave_hex:
+            raise RuntimeError(f"CP {cp_id} sin clave en memoria (REAUTH requerido)")
+
+        key = bytes.fromhex(clave_hex)
+        aesgcm = AESGCM(key)
+        nonce = base64.b64decode(wrapper["nonce"])
+        ct = base64.b64decode(wrapper["enc"])
+        pt = aesgcm.decrypt(nonce, ct, None)
+        return json.loads(pt.decode("utf-8"))
+   
     def notificar_central_operativa(self): # Notificar a CPs y drivers que la central está operativa
         print("[CENTRAL] Notificando a componentes que la central está operativa...")
         
@@ -278,31 +312,31 @@ class EV_Central: # Clase Central (Principal para la práctica)
             conexion.close()
             return False
 
+
     def validar_cp_en_bd(self, cp_id: str, credencial: str) -> bool:
         conexion = self.obtener_conexion_bd()
         if not conexion:
             return False
-
         try:
             cur = conexion.cursor()
             cur.execute("""
                 SELECT 1
                 FROM punto_recarga
                 WHERE id_punto_recarga = %s
-            """, (cp_id,))
-            row = cur.fetchone()
+                AND credencial = %s
+                AND activo = 1
+                LIMIT 1
+            """, (cp_id, credencial))
+            ok = cur.fetchone() is not None
             cur.close()
             conexion.close()
-
-            return row is not None
-
+            return ok
         except Exception as e:
             print(f"[CENTRAL] Error validando CP en BD: {e}")
-            try:
-                conexion.close()
-            except:
-                pass
+            try: conexion.close()
+            except: pass
             return False
+
 
 
 
@@ -597,7 +631,9 @@ class EV_Central: # Clase Central (Principal para la práctica)
                     "cmd": "INICIAR_CARGA",
                     "meta": {"driver_id": driver_id}
                 }
-                self.productor.send(TOPIC_COMANDOS, cmd)
+                topic_destino = f"comandos_cp_{cp_id}"
+                payload = self._encrypt_for_cp(cp_id, cmd)
+                self.productor.send(topic_destino, value=payload)
                 self.productor.flush()
 
                 with self._lock:
@@ -626,10 +662,24 @@ class EV_Central: # Clase Central (Principal para la práctica)
         print("[CENTRAL] Escuchando estados de CPs...")
 
         for msg in consumidor:
-            estado_msg = msg.value
+            raw = msg.value
+
+            # Si viene cifrado (wrapper con nonce/enc)
+            if isinstance(raw, dict) and "enc" in raw and "nonce" in raw:
+                print("[CENTRAL] Recibido wrapper cifrado (cp_id):", raw.get("cp_id"))
+                try:
+                    estado_msg = self._decrypt_from_cp(raw)
+                    print("[CENTRAL] Descifrado OK:", estado_msg)
+                except Exception as e:
+                    print(f"[CENTRAL] ERROR descifrando estado CP: {e}")
+                    continue
+            else:
+                # compatibilidad temporal si aún llega en claro
+                estado_msg = raw
+
             cp_id = estado_msg.get("cp_id")
             estado = estado_msg.get("estado")
-            
+
             if not cp_id or not estado:
                 continue
 
@@ -651,7 +701,7 @@ class EV_Central: # Clase Central (Principal para la práctica)
                 driver_id = estado_msg.get("driver_id")
                 energia_kwh = estado_msg.get("energia_kwh", 0)
                 importe_eur = estado_msg.get("importe_eur", 0)
-                
+
                 if driver_id:
                     ticket = {
                         "driver_id": driver_id,
@@ -665,11 +715,11 @@ class EV_Central: # Clase Central (Principal para la práctica)
                     self.productor.send(TOPIC_RESP_DRIVER, ticket)
                     self.productor.flush()
                     print(f"[CENTRAL] Ticket enviado a driver {driver_id} (CP {cp_id})")
-                    
+
                     # REGISTRAR EN AUDITORÍA: Fin del suministro
                     self.registrar_auditoria(f"CP-{cp_id}", "fin_suministro",
                                             f"Fin del suministro del Driver {driver_id} en el CP {cp_id}")
-                    
+
                     # Cambiar estado del driver a "Activo"
                     self.actualizar_estado_driver(driver_id, "Activo")
 
@@ -677,45 +727,39 @@ class EV_Central: # Clase Central (Principal para la práctica)
                         self.driver_por_cp.pop(cp_id, None)
                         self.cp_por_driver.pop(driver_id, None)
 
-    def escuchar_registros_cp(self): # Escuchar registros de nuevos CPs
-        consumidor = obtener_consumidor(TOPIC_REGISTROS, 'central-registros', self.servidor_kafka) # Consumidor Kafka con topic 'registros_cp'
-        print("[CENTRAL] Escuchando registros de CPs...")
 
-        for msg in consumidor: # Bucle para escuchar mensajes
+    def escuchar_registros_cp(self): # Escuchar registros de nuevos CPs 
+        consumidor = obtener_consumidor(TOPIC_REGISTROS, 'central-registros', self.servidor_kafka) # Consumidor Kafka con topic 'registros_cp' 
+        print("[CENTRAL] Escuchando registros de CPs...") 
+        for msg in consumidor: # Bucle para escuchar mensajes 
             registro = msg.value
-            
-            if registro.get('tipo') == 'REGISTRO_CP': # Si el tipo es: 'REGISTRO_CP'
-                cp_id = registro.get('cp_id') # Obtengo el cp_id
-                ubicacion = registro.get('ubicacion', 'N/A') # Obtengo la ubicación
-                precio = registro.get('precio_eur_kwh', 0.35) # Obtengo el precio
-                estado_inicial = registro.get('estado_inicial', EST_ACTIVO) # Obtengo el estado inicial
-                
-                print(f"[CENTRAL] Recibido registro de CP: {cp_id} en {ubicacion}") # Confirmación
-                
-                if self.registrar_cp_en_bd(cp_id, ubicacion, precio): # Registro el CP en la BD
-                    print(f"[CENTRAL] CP {cp_id} procesado en BD correctamente")
-                else: # Si hay un error al registrar
-                    print(f"[CENTRAL] Error al procesar CP {cp_id} en BD")
-                
-                with self._lock: # Bloqueo para sincronización
-                    if cp_id not in self.cps: # Si el CP no está registrado, lo añado n la lista
-                        self.cps[cp_id] = { # Inicializo el CP
-                            "estado": estado_inicial,
-                            "ubicacion": ubicacion,
-                            "precio": precio,
-                            "ultima_actualizacion": time.time()
-                        }
-                        print(f"[CENTRAL] Nuevo CP registrado: {cp_id} en {ubicacion} (estado: {estado_inicial})")
-                    else: # Si ya existe, actualizo la información
-                        self.cps[cp_id].update({ # Actualizo la información del CP
-                            "ubicacion": ubicacion,
-                            "precio": precio,
-                            "ultima_actualizacion": time.time()
-                        })
-                        print(f"[CENTRAL] CP {cp_id} actualizado")
-                
-                self.actualizar_estado_cp_en_bd(cp_id, estado_inicial) # Actualizo el estado en la BD
-                
+            if registro.get('tipo') == 'REGISTRO_CP': 
+                cp_id = str(registro.get('cp_id')) 
+                ubicacion = registro.get('ubicacion', 'N/A') 
+                precio = registro.get('precio_eur_kwh', 0.35) 
+                estado_inicial = registro.get('estado_inicial', EST_ACTIVO) 
+                print(f"[CENTRAL] Recibido registro de CP (Engine): {cp_id} en {ubicacion}") 
+                # Si no existe en BD, NO insertamos desde Central. 
+                if not self.verifico_cp(cp_id): 
+                    print(f"[CENTRAL] CP {cp_id} aún NO está en BD (EV_Registry). Ignorando REGISTRO_CP del Engine.") 
+                    continue # <-- si estás dentro del bucle de consumo Kafka 
+                with self._lock: 
+                    if cp_id not in self.cps: 
+                        self.cps[cp_id] = { 
+                            "estado": estado_inicial, 
+                            "ubicacion": ubicacion, 
+                            "precio": precio, 
+                            "ultima_actualizacion": time.time() 
+                            } 
+                        print(f"[CENTRAL] CP {cp_id} cargado en memoria (ya existía en BD).") 
+                    else: 
+                        self.cps[cp_id].update({ 
+                            "ubicacion": ubicacion, 
+                            "precio": precio, 
+                            "ultima_actualizacion": time.time() 
+                            }) 
+                        print(f"[CENTRAL] CP {cp_id} memoria actualizada (ya existía en BD).")
+
     def enviar_comando(self, cp_id, cmd): # Enviar comando a un CP específico o a todos
         try: # Intento enviar el comando
             print(f"[CENTRAL] Enviando comando '{cmd}' a '{cp_id}'")
@@ -736,7 +780,8 @@ class EV_Central: # Clase Central (Principal para la práctica)
                     }
                     # ENVIAR AL TOPIC ESPECÍFICO DEL CP
                     topic_destino = f"comandos_cp_{id_cp}"
-                    self.productor.send(topic_destino, value=orden) # Envio la orden
+                    payload = self._encrypt_for_cp(id_cp, orden)
+                    self.productor.send(topic_destino, value=payload)
                     print(f"[CENTRAL] Comando {cmd} enviado a CP {id_cp} en topic {topic_destino}")
             else: # Si es para un CP específico
                 if cp_id not in self.cps: # Si el CP no está registrado, envío mensaje
@@ -750,7 +795,8 @@ class EV_Central: # Clase Central (Principal para la práctica)
                 }
                 # ENVIAR AL TOPIC ESPECÍFICO DEL CP
                 topic_destino = f"comandos_cp_{cp_id}"
-                self.productor.send(topic_destino, value=orden) # Envio la orden
+                payload = self._encrypt_for_cp(cp_id, orden)
+                self.productor.send(topic_destino, value=payload)
                 print(f"[CENTRAL] Comando {cmd} enviado a CP {cp_id} en topic {topic_destino}")
             self.productor.flush()
             print(f"[CENTRAL] Flush completado para comando {cmd}")
@@ -771,6 +817,15 @@ class EV_Central: # Clase Central (Principal para la práctica)
         with self._lock:
             self.cps.setdefault(cp_id, {"estado": EST_DESC}) # Aseguro que el CP esté registrado
 
+            # Si NO es AUTH y no hay clave en memoria, exigir reauth ANTES de procesar comandos
+            if comando != "AUTH":
+                    clave = self.cps.get(cp_id, {}).get("clave_simetrica")
+                    if not clave:
+                        if cliente:
+                            cliente.sendall(b"REAUTH_REQUIRED\n")
+                        print(f"[CENTRAL] CP {cp_id} sin clave -> REAUTH_REQUIRED")
+                        return 
+
             if comando == "AVISO": # Si recibo el comando "AVISO"
                 print(f"[{ahora}] [CENTRAL] Monitor avisa de {cp_id}. Estado actual: {self.cps[cp_id]['estado']}")
             elif comando == "HELLO": # Si recibo el comando "HELLO"
@@ -781,7 +836,8 @@ class EV_Central: # Clase Central (Principal para la práctica)
                     print(f"[{ahora}] [CENTRAL] {cp_id} -> AVERIA (reportado por monitor)")
                     self.actualizar_estado_cp_en_bd(cp_id, EST_DESC) # Actualizo el estado en la BD
                     orden = {"cp_id": cp_id, "cmd": "DESCONECTADO"} # Creo la orden a enviar
-                    self.productor.send(f"comandos_cp_{cp_id}", orden) # Envio la orden al topic del CP
+                    payload = self._encrypt_for_cp(cp_id, orden)
+                    self.productor.send(f"comandos_cp_{cp_id}", payload) # Envio la orden al topic del CP
                     self.productor.flush()
                     print(f"[CENTRAL] Comando DESCONECTADO enviado al CP {cp_id}")
 
@@ -807,8 +863,7 @@ class EV_Central: # Clase Central (Principal para la práctica)
                     self.marcar_cp_con_clave(cp_id)
 
                     # 4) Guardar la clave en memoria (opcional pero útil)
-                    with self._lock:
-                        self.cps.setdefault(cp_id, {})["clave_simetrica"] = clave
+                    self.cps.setdefault(cp_id, {})["clave_simetrica"] = clave
 
                     # 5) Responder al CP
                     msg = f"AUTH_OK {clave}\n"
@@ -820,7 +875,6 @@ class EV_Central: # Clase Central (Principal para la práctica)
                     if cliente:
                         cliente.sendall(msg.encode())
                     print(f"[{ahora}] [CENTRAL] AUTH ERROR para CP {cp_id}")
-
 
             elif comando == "EN_AVERIA": # Si recibo el comando "EN_AVERIA"
                 if self.cps[cp_id]["estado"] != EST_DESC: # Si el estado no es DESCONECTADO
@@ -849,6 +903,8 @@ class EV_Central: # Clase Central (Principal para la práctica)
                 print(f"[CENTRAL] Comando resolucion de contingenica enviado al CP {cp_id}")
             else: # Si no se reconcoce el comando
                 print(f"[CENTRAL] Comando de monitor NO reconocido: {linea!r}")
+
+            
 
     def atender_monitor(self, cliente, direccion): # Atender conexión de un monitor
         try: # Intento atender al monitor
@@ -928,7 +984,9 @@ class EV_Central: # Clase Central (Principal para la práctica)
             
             # Enviar al topic específico del CP
             topic_destino = f"comandos_cp_{cp_id}"
-            self.productor.send(topic_destino, value=orden)
+            payload = self._encrypt_for_cp(cp_id, orden)
+            self.productor.send(topic_destino, payload)
+
             self.productor.flush()
             print(f"[CENTRAL] Comando {comando} enviado a CP {cp_id} por alerta meteorológica")
             
@@ -1001,6 +1059,31 @@ class EV_Central: # Clase Central (Principal para la práctica)
                 if "Suministrando" in nuevo_estado:
                     self.registrar_auditoria(f"CP-{cp_id}", "inicio_suministro",
                                             f"Driver {driver_id} iniciando suministro en CP {cp_id}")
+    def revocar_clave_cp(self, cp_id: str):
+        # 1) BD: marcar que ya no tiene clave
+        conexion = self.obtener_conexion_bd()
+        if conexion:
+            try:
+                cur = conexion.cursor()
+                cur.execute("""
+                    UPDATE punto_recarga
+                    SET tiene_clave_simetrica = 0
+                    WHERE id_punto_recarga = %s
+                """, (cp_id,))
+                conexion.commit()
+                cur.close()
+                conexion.close()
+            except Exception as e:
+                print(f"[CENTRAL] Error revocando clave en BD para CP {cp_id}: {e}")
+                try: conexion.close()
+                except: pass
+
+        # 2) Memoria: borrar clave
+        with self._lock:
+            if cp_id in self.cps and "clave_simetrica" in self.cps[cp_id]:
+                del self.cps[cp_id]["clave_simetrica"]
+
+        print(f"[CENTRAL] Clave simétrica revocada para CP {cp_id}.")
 
     def iniciar_servicios(self): # Iniciar todos los servicios de la central
         print("Iniciando todos los servicios de la central...")
@@ -1038,7 +1121,8 @@ class EV_Central: # Clase Central (Principal para la práctica)
                 print("2. Parar todos los CPs")
                 print("3. Reanudar un CP específico")
                 print("4. Reanudar todos los CPs")
-                print("5. Salir")
+                print("5. Revocar clave simétrica de un CP")
+                print("6. Salir")
                 print("="*60)
 
                 opcion = input("Seleccione una opción (1-5): ").strip() # Solicito la opción
@@ -1065,7 +1149,10 @@ class EV_Central: # Clase Central (Principal para la práctica)
                         self.enviar_comando("ALL", "REANUDAR") # Enviar comando REANUDAR a todos
                     else: # Si no hay CPs
                         print("No hay CPs registrados en la central")
-                elif opcion == '5': # Salir del menú
+                elif opcion == '5': # Revocar clave simétrica de un CPelif opcion == '5':
+                    cp_id = input("Ingrese el ID del CP para REVOCAR CLAVE: ").strip()
+                    self.revocar_clave_cp(cp_id)
+                elif opcion == '6': # Salir del menú
                     print("Saliendo del menú de la central...")
                     self.activo = False  # detener monitoreo
                     break

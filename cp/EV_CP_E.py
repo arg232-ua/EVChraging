@@ -6,6 +6,10 @@ from kafka import KafkaProducer, KafkaConsumer
 import threading
 import socket
 import signal
+import os
+import base64
+from cryptography.hazmat.primitives.ciphers.aead import AESGCM
+
 
 TOPIC_REGISTROS = "registros_cp" 
 TOPIC_COMANDOS  = "comandos_cp"
@@ -33,6 +37,51 @@ def obtener_consumidor(topico, grupo_id, servidor_kafka, auto_offset_reset="late
         enable_auto_commit=True,
         key_deserializer=lambda k: k.decode("utf-8") if k else None
     )
+def key_file(cp_id: str):
+    return f"clave_simetrica_cp_{cp_id}.json"
+
+def cargar_clave_hex(cp_id: str):
+    try:
+        with open(key_file(cp_id), "r", encoding="utf-8") as f:
+            data = json.load(f)
+        # acepta {"clave": "..."} o {"clave_simetrica": "..."} por si cambiaste nombre
+        clave = data.get("clave") or data.get("clave_simetrica")
+        return clave
+    except Exception:
+        return None
+
+def cifrar_payload(cp_id: str, payload: dict) -> dict:
+    clave_hex = cargar_clave_hex(cp_id)
+    if not clave_hex:
+        raise RuntimeError(f"CP {cp_id} sin clave simétrica local ({key_file(cp_id)})")
+
+    key = bytes.fromhex(clave_hex)      # tu central genera token_hex(16) => 16 bytes OK para AESGCM
+    aesgcm = AESGCM(key)
+    nonce = os.urandom(12)
+
+    pt = json.dumps(payload, ensure_ascii=False).encode("utf-8")
+    ct = aesgcm.encrypt(nonce, pt, None)
+
+    return {
+        "cp_id": str(cp_id),
+        "alg": "AESGCM",
+        "nonce": base64.b64encode(nonce).decode("ascii"),
+        "enc": base64.b64encode(ct).decode("ascii")
+    }
+
+def descifrar_payload(cp_id: str, wrapper: dict) -> dict:
+    clave_hex = cargar_clave_hex(cp_id)
+    if not clave_hex:
+        raise RuntimeError(f"CP {cp_id} sin clave simétrica local ({key_file(cp_id)})")
+
+    key = bytes.fromhex(clave_hex)
+    aesgcm = AESGCM(key)
+
+    nonce = base64.b64decode(wrapper["nonce"])
+    ct = base64.b64decode(wrapper["enc"])
+    pt = aesgcm.decrypt(nonce, ct, None)
+
+    return json.loads(pt.decode("utf-8"))
 
 class EV_CP:
     def __init__(self, servidor_kafka, cp_id, ubicacion="N/A", precio_eur_kwh=0.35):
@@ -76,7 +125,7 @@ class EV_CP:
     #Registra el CP en el topico de registros
     def registrar_cp(self):
         datos = {
-            "tipo": "REGISTRO_CP",
+            "tipo": "REGISTRO_CP",  
             "ts": datetime.utcnow().isoformat(),
             "cp_id": self.cp_id,
             "ubicacion": self.ubicacion,
@@ -111,7 +160,8 @@ class EV_CP:
         if fin:
             datos["fin_carga"] = True
 
-        self.productor.send(TOPIC_ESTADO, key=self.cp_id, value=datos)
+        payload = cifrar_payload(self.cp_id, datos)
+        self.productor.send(TOPIC_ESTADO, key=self.cp_id, value=payload)
         self.productor.flush()
         print(f"[EV_CP_E] Estado publicado -> {self.cp_id}: {self.estado} ({motivo})")
 
@@ -193,16 +243,29 @@ class EV_CP:
                 auto_offset_reset="latest"
             )
             print(f"[EV_CP_E] Escuchando comandos en topic exclusivo: '{topic_especifico}'...")
-            
+
             for record in consumidor:
-                msg = record.value
+                raw = record.value
+
+                # Si viene cifrado (wrapper con nonce/enc)
+                if isinstance(raw, dict) and "enc" in raw and "nonce" in raw:
+                    try:
+                        msg = descifrar_payload(self.cp_id, raw)
+                    except Exception as e:
+                        print(f"[EV_CP_E] ERROR descifrando comando (cp={self.cp_id}): {e}")
+                        continue
+                else:
+                    # Compatibilidad temporal si aún llega en claro
+                    msg = raw
+
                 print(f"[EV_CP_E] Comando recibido: {msg}")
                 self._handle_command(msg)
-                    
+
         except Exception as e:
             print(f"[EV_CP_E] Error en escuchar_comandos: {e}")
             import traceback
             traceback.print_exc()
+
 
     #Simula el proceso de carga
     def _bucle_carga(self):
@@ -233,7 +296,8 @@ class EV_CP:
         try:
             # Enviar al topic que escucha la central para cambios de estado
             topic_estado_driver = "cambios_estado_driver"
-            self.productor.send(topic_estado_driver, key=driver_id, value=mensaje)
+            payload = cifrar_payload(self.cp_id, mensaje)
+            self.productor.send(topic_estado_driver, key=driver_id, value=payload)
             self.productor.flush()
             print(f"[EV_CP_E] Notificado cambio de estado del driver {driver_id} a: {nuevo_estado}")
             return True
@@ -319,8 +383,9 @@ class EV_CP:
                 pass
 
         try:
-            self.productor.send(TOPIC_CARGA_SOLICITADA, key=self.cp_id, value=msg) #Solicita recarga local a central
-            self.productor.flush()
+            payload = cifrar_payload(self.cp_id, msg)
+            self.productor.send(TOPIC_CARGA_SOLICITADA, key=self.cp_id, value=payload)
+
             print(f"[EV_CP_E] Solicitud de recarga local enviada para driver '{driver_id}' en CP '{self.cp_id}'")
             return True
         except Exception as e:
@@ -345,7 +410,9 @@ class EV_CP:
         }
         
         try:
-            self.productor.send(TOPIC_ESTADO, key=self.cp_id, value=datos_desconexion)
+            payload = cifrar_payload(self.cp_id, datos_desconexion)
+            self.productor.send(TOPIC_ESTADO, key=self.cp_id, value=payload)
+
             self.productor.flush()
             print(f"[EV_CP_E] Mensaje de desconexión enviado a la central para CP {self.cp_id}")
         except Exception as e:
