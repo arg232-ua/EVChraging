@@ -129,6 +129,14 @@ class EV_CP:
             time.sleep(0.2)
         print(f"[EV_CP_E] No fue posible conectar con Kafka en {self.servidor_kafka}")
         return False
+    
+    def sincronizar_estado_inicial(self): # Sincronizar estado inicial con central
+        print(f"[EV_CP_E] Sincronizando estado inicial para CP {self.cp_id}...")
+        # Esperar 3 segundos para recibir comandos de la central
+        time.sleep(3)
+        
+        print(f"[EV_CP_E] Estado sincronizado: {self.estado}")
+
     #Registra el CP en el topico de registros
     def registrar_cp(self):
         datos = {
@@ -137,7 +145,6 @@ class EV_CP:
             "cp_id": self.cp_id,
             "ubicacion": self.ubicacion,
             "precio_eur_kwh": self.precio,
-            "estado_inicial": self.estado
         }
         self.productor.send(TOPIC_REGISTROS, key=self.cp_id, value=datos)
         self.productor.flush()
@@ -149,6 +156,11 @@ class EV_CP:
             print(f"[EV_CP_E] Estado ignorado (no válido): {nuevo_estado}")
             return
         
+         # Si el estado es el mismo, no necesitamos enviarlo (excepto para fin de carga)
+        if nuevo_estado == self.estado and not fin:
+            print(f"[EV_CP_E] Estado ya es {self.estado}, no se reenvía")
+            return
+
         self.estado = nuevo_estado
         datos = {
             "ts": datetime.utcnow().isoformat(),
@@ -629,10 +641,12 @@ def main():
 
         cp.iniciar_servidor_socket(puerto_engine)
         cp.registrar_cp()
-        cp.enviar_estado(cp.estado, motivo="Arranque CP")
 
         hilo_cmd = threading.Thread(target=cp.escuchar_comandos, daemon=True)
         hilo_cmd.start()
+
+        cp.sincronizar_estado_inicial()
+        cp.enviar_estado(cp.estado, motivo="Arranque CP sincronizado")
 
         print("[EV_CP_E] Engine listo: registrado, escuchando comandos y con socket de monitor activo. Use el menú local para acciones (Ctrl+C para salir).")
         cp.mostrar_menu_local()
