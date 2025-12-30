@@ -62,12 +62,16 @@ def cifrar_payload(cp_id: str, payload: dict) -> dict:
     pt = json.dumps(payload, ensure_ascii=False).encode("utf-8")
     ct = aesgcm.encrypt(nonce, pt, None)
 
-    return {
-        "cp_id": str(cp_id),
-        "alg": "AESGCM",
-        "nonce": base64.b64encode(nonce).decode("ascii"),
-        "enc": base64.b64encode(ct).decode("ascii")
+    wrapper = {
+    "cp_id": str(cp_id),
+    "alg": "AESGCM",
+    "nonce": base64.b64encode(nonce).decode("ascii"),
+    "enc": base64.b64encode(ct).decode("ascii")
     }
+
+    print(f"[EV_CP_E][CRYPTO] ✅ CIFRADO cp={cp_id} alg={wrapper['alg']} nonce_len={len(wrapper['nonce'])} enc_len={len(wrapper['enc'])}")
+
+    return wrapper
 
 def descifrar_payload(cp_id: str, wrapper: dict) -> dict:
     clave_hex = cargar_clave_hex(cp_id)
@@ -81,7 +85,10 @@ def descifrar_payload(cp_id: str, wrapper: dict) -> dict:
     ct = base64.b64decode(wrapper["enc"])
     pt = aesgcm.decrypt(nonce, ct, None)
 
-    return json.loads(pt.decode("utf-8"))
+    obj = json.loads(pt.decode("utf-8"))
+    print(f"[EV_CP_E][CRYPTO] ✅ DESCIFRADO cp={cp_id} keys={list(obj.keys())} cmd={obj.get('cmd')}")
+    return obj
+
 
 class EV_CP:
     def __init__(self, servidor_kafka, cp_id, ubicacion="N/A", precio_eur_kwh=0.35):
@@ -257,6 +264,8 @@ class EV_CP:
                 else:
                     # Compatibilidad temporal si aún llega en claro
                     msg = raw
+                    print(f"[EV_CP_E][CRYPTO] COMANDO EN CLARO cp={self.cp_id} raw_keys={list(raw.keys()) if isinstance(raw, dict) else type(raw)}")
+
 
                 print(f"[EV_CP_E] Comando recibido: {msg}")
                 self._handle_command(msg)

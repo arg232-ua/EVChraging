@@ -109,12 +109,19 @@ class EV_Central: # Clase Central (Principal para la práctica)
         pt = json.dumps(payload, ensure_ascii=False).encode("utf-8")
         ct = aesgcm.encrypt(nonce, pt, None)
 
-        return {
+        wrapper = {
             "cp_id": str(cp_id),
             "alg": "AESGCM",
             "nonce": base64.b64encode(nonce).decode("ascii"),
             "enc": base64.b64encode(ct).decode("ascii")
         }
+
+        # PRINT: confirmación de cifrado
+        info = payload.get("cmd") or payload.get("tipo") or payload.get("estado") or "N/A"
+        print(f"[CENTRAL][CRYPTO] CIFRADO -> CP {cp_id} info={info} nonce_len={len(wrapper['nonce'])} enc_len={len(wrapper['enc'])}")
+
+        return wrapper
+
 
     def _decrypt_from_cp(self, wrapper: dict) -> dict:
         cp_id = str(wrapper.get("cp_id"))
@@ -127,8 +134,15 @@ class EV_Central: # Clase Central (Principal para la práctica)
         nonce = base64.b64decode(wrapper["nonce"])
         ct = base64.b64decode(wrapper["enc"])
         pt = aesgcm.decrypt(nonce, ct, None)
-        return json.loads(pt.decode("utf-8"))
-   
+
+        obj = json.loads(pt.decode("utf-8"))
+
+        #PRINT: confirmación de descifrado
+        info = obj.get("cmd") or obj.get("tipo") or obj.get("estado") or "N/A"
+        print(f"[CENTRAL][CRYPTO] DESCIFRADO <- CP {cp_id} info={info} keys={list(obj.keys())}")
+
+        return obj
+    
     def notificar_central_operativa(self): # Notificar a CPs y drivers que la central está operativa
         print("[CENTRAL] Notificando a componentes que la central está operativa...")
         
