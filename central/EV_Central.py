@@ -703,13 +703,22 @@ class EV_Central: # Clase Central (Principal para la práctica)
 
             print(f"[CENTRAL] Actualizando estado CP {cp_id}: {estado}")
 
+            # Verificar si el estado en BD es diferente
+            estado_bd = self.obtener_estado_cp_bd(cp_id)
+
             with self._lock:
                 if cp_id not in self.cps:
                     self.cps[cp_id] = {}
                 self.cps[cp_id]["estado"] = estado
                 self.cps[cp_id]["ultima_actualizacion"] = time.time()
 
-            self.actualizar_estado_cp_en_bd(cp_id, estado)
+            if estado_bd and estado_bd.get("estado") != estado:
+                print(f"[CENTRAL] Estado inconsistente CP {cp_id}: BD = {estado_bd['estado']}, CP = {estado}")
+                # Actualizar BD con el estado recibido del CP
+                self.actualizar_estado_cp_en_bd(cp_id, estado)
+                print(f"[CENTRAL] BD actualizada con estado del CP {cp_id}: {estado}")
+            else:
+                self.actualizar_estado_cp_en_bd(cp_id, estado)
 
             if estado_msg.get("fin_carga", False):
                 driver_id = estado_msg.get("driver_id")
@@ -778,6 +787,16 @@ class EV_Central: # Clase Central (Principal para la práctica)
         try: # Intento enviar el comando
             print(f"[CENTRAL] Enviando comando '{cmd}' a '{cp_id}'")
             
+            comando_a_estado = {
+                "PARAR": "PARADO",
+                "REANUDAR": "ACTIVADO", 
+                "AVERIA": "AVERIA",
+                "DESCONECTADO": "DESCONECTADO",
+                "ACTIVADO": "ACTIVADO"
+            }
+
+            nuevo_estado = comando_a_estado.get(cmd)
+
             if cp_id == "ALL": # Si es para todos los CPs
                 cps_list = list(self.cps.keys()) # Obtengo la lista de todos los CPs registrados
                 if not cps_list: # Si no hay CPs registrados, envío ensaje
@@ -787,11 +806,20 @@ class EV_Central: # Clase Central (Principal para la práctica)
                 # si hay CPs, envío el comando a cada uno
                 print(f"[CENTRAL] Enviando a {len(cps_list)} CPs: {cps_list}")
                 for id_cp in cps_list: # Para cada CP
-                    orden = { # Creo la orden a enviar
+                    if nuevo_estado:
+                        self.actualizar_estado_cp_en_bd(id_cp, nuevo_estado)
+                
+                    orden = {
                         "cp_id": id_cp, 
                         "cmd": cmd,
-                        "timestamp": time.time()
+                        "timestamp": time.time(),
+                        "motivo": f"Comando desde menú central"
                     }
+                    
+                    with self._lock:
+                        if id_cp in self.cps:
+                            self.cps[id_cp]["estado"] = nuevo_estado
+
                     # ENVIAR AL TOPIC ESPECÍFICO DEL CP
                     topic_destino = f"comandos_cp_{id_cp}"
                     payload = self._encrypt_for_cp(id_cp, orden)
@@ -801,12 +829,20 @@ class EV_Central: # Clase Central (Principal para la práctica)
                 if cp_id not in self.cps: # Si el CP no está registrado, envío mensaje
                     print(f"[CENTRAL] CP {cp_id} no encontrado. CPs registrados: {list(self.cps.keys())}")
                     return
-                # si está registrado, envío el comando
-                orden = { # creo la orden a enviar
+                if nuevo_estado:
+                    self.actualizar_estado_cp_en_bd(cp_id, nuevo_estado)
+                
+                orden = {
                     "cp_id": cp_id, 
                     "cmd": cmd,
-                    "timestamp": time.time()
+                    "timestamp": time.time(),
+                    "motivo": f"Comando desde menú central"
                 }
+
+                with self._lock:
+                    if cp_id in self.cps:
+                        self.cps[cp_id]["estado"] = nuevo_estado
+
                 # ENVIAR AL TOPIC ESPECÍFICO DEL CP
                 topic_destino = f"comandos_cp_{cp_id}"
                 payload = self._encrypt_for_cp(cp_id, orden)
