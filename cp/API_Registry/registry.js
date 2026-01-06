@@ -29,9 +29,9 @@ connection.connect(error => {
 });
 
 
-// ===============================
-// 1) REGISTRAR CP (POST)
-// ===============================
+
+// REGISTRAR CP (POST)
+
 registry.post("/registro", (req, res) => {
     const { cp_logico, id_central, ubicacion_punto_recarga, precio, estado } = req.body;
 
@@ -51,7 +51,7 @@ registry.post("/registro", (req, res) => {
         const credencial = generarCredencial();
 
         if (rows.length > 0) {
-            // 🔵 CP EXISTENTE → solo actualizar credencial
+            // CP EXISTENTE → solo actualizar credencial
             const id_cp_bd = rows[0].id_punto_recarga;
 
             const sqlUpdate = `
@@ -71,7 +71,7 @@ registry.post("/registro", (req, res) => {
             });
 
         } else {
-            // 🟢 CP NUEVO → crear
+            // CP NUEVO → crear
             const sqlInsert = `
             INSERT INTO punto_recarga
             (cp_logico, id_central, ubicacion_punto_recarga, precio, estado, credencial, activo)
@@ -96,9 +96,9 @@ registry.post("/registro", (req, res) => {
 });
 
 
-// ===============================
-// 2) DAR DE BAJA CP (DELETE)
-// ===============================
+
+// DAR DE BAJA CP (DELETE)
+
 registry.delete("/registro/:id", (req, res) => {
     const id = req.params.id;
 
@@ -115,9 +115,9 @@ registry.delete("/registro/:id", (req, res) => {
     });
 });
 
-// ===============================
-// 2.1) REACTIVAR CP (PUT)
-// ===============================
+
+//REACTIVAR CP (PUT)
+
 registry.put("/registro/reactivar/:id", (req, res) => {
     const id = req.params.id;
 
@@ -160,9 +160,9 @@ registry.put("/registro/reactivar/:id", (req, res) => {
     });
 });
 
-// ===============================
-// 3) CONSULTAR CP POR ID (GET)
-// ===============================
+
+// CONSULTAR CP POR ID (GET)
+
 registry.get("/registro/:id", (req, res) => {
     const id = req.params.id;
 
@@ -180,9 +180,9 @@ registry.get("/registro/:id", (req, res) => {
 });
 
 
-// ===============================
-// 4) LISTAR TODOS LOS CPs (GET)
-// ===============================
+
+//LISTAR TODOS LOS CPs (GET)
+
 registry.get("/registro", (req, res) => {
     const sql = "SELECT * FROM punto_recarga";
 

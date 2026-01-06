@@ -44,7 +44,6 @@ def cargar_clave_hex(cp_id: str):
     try:
         with open(key_file(cp_id), "r", encoding="utf-8") as f:
             data = json.load(f)
-        # acepta {"clave": "..."} o {"clave_simetrica": "..."} por si cambiaste nombre
         clave = data.get("clave") or data.get("clave_simetrica")
         return clave
     except Exception:
@@ -69,7 +68,7 @@ def cifrar_payload(cp_id: str, payload: dict) -> dict:
     "enc": base64.b64encode(ct).decode("ascii")
     }
 
-    print(f"[EV_CP_E][CRYPTO] ✅ CIFRADO cp={cp_id} alg={wrapper['alg']} nonce_len={len(wrapper['nonce'])} enc_len={len(wrapper['enc'])}")
+    print(f"[EV_CP_E][CRYPTO] CIFRADO cp={cp_id} alg={wrapper['alg']} nonce_len={len(wrapper['nonce'])} enc_len={len(wrapper['enc'])}")
 
     return wrapper
 
@@ -86,7 +85,7 @@ def descifrar_payload(cp_id: str, wrapper: dict) -> dict:
     pt = aesgcm.decrypt(nonce, ct, None)
 
     obj = json.loads(pt.decode("utf-8"))
-    print(f"[EV_CP_E][CRYPTO] ✅ DESCIFRADO cp={cp_id} keys={list(obj.keys())} cmd={obj.get('cmd')}")
+    print(f"[EV_CP_E][CRYPTO] DESCIFRADO cp={cp_id} keys={list(obj.keys())} cmd={obj.get('cmd')}")
     return obj
 
 

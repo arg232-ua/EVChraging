@@ -6,15 +6,12 @@ import requests
 import json
 import os
 
-# ==========================
-#  CONFIGURACIÓN REGISTRY
-# ==========================
 
-# URL del endpoint de registro del EV_Registry (API REST)
+
+# URL del endpoint de registro del EV_Registry
 REGISTRY_URL = "https://localhost:3001/registro"
 
-# Certificado del servidor EV_Registry (copia aquí el cert.pem del Node)
-# Si el cert.pem está en otro sitio, pon la ruta correcta.
+# Certificado del servidor EV_Registry
 REGISTRY_CERT = "cert.pem"
 
 # Fichero local donde guardaremos la credencial del CP
@@ -73,9 +70,9 @@ def enviar_auth_central(central_addr, texto, timeout=12.0):
         print(f"[EV_CP_M] Error enviando AUTH a Central: {e}")
         return None
 
-# ==========================
-#  FUNCIONES REGISTRO / CRED
-# ==========================
+
+# FUNCIONES REGISTRO / CRED
+
 
 import json
 
@@ -100,9 +97,8 @@ def cargar_credencial(cp_id):
         return None
 
 
-# ==========================
-#  FUNCIONES REGISTRO / CLAVE
-# ==========================
+
+# FUNCIONES REGISTRO / CLAVE
 
 def key_file(cp_id):
     return f"clave_simetrica_cp_{cp_id}.json"
@@ -130,19 +126,14 @@ def borrar_clave_simetrica(cp_id):
 
 
 def registrar_cp_en_registry(id_cp):
-    """
-    Realiza un POST HTTPS al EV_Registry para registrar el CP.
-    Devuelve True si el registro ha ido bien y guarda la credencial.
-    """
 
     payload = {
-    "cp_logico": int(id_cp),  # 🔑 CLAVE: CP lógico
+    "cp_logico": int(id_cp),
     "id_central": "0039051",
     "ubicacion_punto_recarga": f"CP {id_cp} – EPS",
     "precio": 0.35,
     "estado": "DESCONECTADO"
     }
-
 
     print(f"[EV_CP_M] Registrando CP {id_cp} en EV_Registry...")
 
@@ -158,12 +149,10 @@ def registrar_cp_en_registry(id_cp):
         if "credencial" not in data:
             print(f"[EV_CP_M] Respuesta de Registry sin credencial: {data}")
             return False
-
         cred = data["credencial"]
         guardar_credencial(id_cp, cred, id_cp_bd=data.get("id_punto_recarga"))
         print(f"[EV_CP_M] Registro en EV_Registry OK. ID_CP_BD={data.get('id_punto_recarga')}  Credencial={cred}")
         return True
-
     except requests.exceptions.SSLError as e:
         print("[EV_CP_M] Error SSL con EV_Registry (revisa REGISTRY_CERT):", e)
         return False
@@ -172,9 +161,9 @@ def registrar_cp_en_registry(id_cp):
         return False
 
 
-# ==========================
-#  MONITORIZACIÓN
-# ==========================
+
+# MONITORIZACIÓN
+
 
 def monitorizar(engine_addr, central_addr, cp_id, intervalo=2.0):
     ultimo_ok = ping_engine(engine_addr, cp_id)
