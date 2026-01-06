@@ -868,13 +868,15 @@ class EV_Central: # Clase Central (Principal para la práctica)
             self.cps.setdefault(cp_id, {"estado": EST_DESC}) # Aseguro que el CP esté registrado
 
             # Si NO es AUTH y no hay clave en memoria, exigir reauth ANTES de procesar comandos
-            if comando != "AUTH":
-                    clave = self.cps.get(cp_id, {}).get("clave_simetrica")
-                    if not clave:
-                        if cliente:
-                            cliente.sendall(b"REAUTH_REQUIRED\n")
-                        print(f"[CENTRAL] CP {cp_id} sin clave -> REAUTH_REQUIRED")
-                        return 
+            # Si NO es AUTH (ni BAJA) y no hay clave en memoria, exigir reauth
+            if comando not in ("AUTH", "BAJA"):
+                clave = self.cps.get(cp_id, {}).get("clave_simetrica")
+                if not clave:
+                    if cliente:
+                        cliente.sendall(b"REAUTH_REQUIRED\n")
+                    print(f"[CENTRAL] CP {cp_id} sin clave -> REAUTH_REQUIRED")
+                    return
+
 
             if comando == "AVISO": # Si recibo el comando "AVISO"
                 print(f"[{ahora}] [CENTRAL] Monitor avisa de {cp_id}. Estado actual: {self.cps[cp_id]['estado']}")
@@ -951,6 +953,19 @@ class EV_Central: # Clase Central (Principal para la práctica)
                 self.productor.send(f"comandos_cp_{cp_id}", orden) # Envio la orden al topic del CP
                 self.productor.flush()
                 print(f"[CENTRAL] Comando resolucion de contingenica enviado al CP {cp_id}")
+            elif comando == "BAJA":
+                # Formato: BAJA <cp_id_bd>
+                now = time.strftime("%H:%M:%S")
+                print(f"[{now}] [CENTRAL] CP {cp_id} dado de baja en EV_Registry (activo=0).")
+
+                # Por seguridad, revoca clave en memoria si existiera
+                with self._lock:
+                    if cp_id in self.cps and "clave_simetrica" in self.cps[cp_id]:
+                        self.cps[cp_id].pop("clave_simetrica", None)    
+
+                    # Marca estado en memoria si quieres
+                    self.cps.setdefault(cp_id, {})["estado"] = EST_DESC
+
             else: # Si no se reconcoce el comando
                 print(f"[CENTRAL] Comando de monitor NO reconocido: {linea!r}")
 

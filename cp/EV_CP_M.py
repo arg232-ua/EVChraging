@@ -70,6 +70,13 @@ def enviar_auth_central(central_addr, texto, timeout=12.0):
         print(f"[EV_CP_M] Error enviando AUTH a Central: {e}")
         return None
 
+def avisar_baja_a_central(central_host, central_port, cp_id_bd):
+    try:
+        with socket.create_connection((central_host, central_port), timeout=3) as s:
+            s.sendall(f"BAJA {cp_id_bd}\n".encode("utf-8"))
+        print(f"[EV_CP_M] Aviso BAJA enviado a Central (id_bd={cp_id_bd}).")
+    except Exception as e:
+        print(f"[EV_CP_M] No se pudo avisar BAJA a Central: {e}")
 
 # FUNCIONES REGISTRO / CRED
 
@@ -123,6 +130,12 @@ def borrar_clave_simetrica(cp_id):
         pass
 
 
+def borrar_credencial(cp_id):
+    try:
+        os.remove(cred_file(cp_id))
+        print(f"[EV_CP_M] Credencial eliminada ({cred_file(cp_id)}).")
+    except FileNotFoundError:
+        pass
 
 
 def registrar_cp_en_registry(id_cp):
@@ -138,7 +151,7 @@ def registrar_cp_en_registry(id_cp):
     print(f"[EV_CP_M] Registrando CP {id_cp} en EV_Registry...")
 
     try:
-        # verify=REGISTRY_CERT asegura canal cifrado y confianza en el cert autofirmado
+
         resp = requests.post(REGISTRY_URL, json=payload, verify=False)
         data = resp.json()
 
@@ -158,6 +171,34 @@ def registrar_cp_en_registry(id_cp):
         return False
     except Exception as e:
         print("[EV_CP_M] Error de conexión HTTPS a EV_Registry:", e)
+        return False
+
+def dar_baja_cp_en_registry(cp_id):
+    cred = cargar_credencial(cp_id)
+    if not cred:
+        print(f"[EV_CP_M] No hay credencial local para CP {cp_id} -> no puedo dar de baja.")
+        return False
+
+    id_cp_bd = cred.get("id_cp_bd")
+    if not id_cp_bd:
+        print(f"[EV_CP_M] credencial local sin id_cp_bd -> {cred}")
+        return False
+
+    url = f"{REGISTRY_URL}/{id_cp_bd}"
+    print(f"[EV_CP_M] DELETE BAJA -> {url}")
+
+    try:
+        resp = requests.delete(url, verify=False, timeout=5)
+
+        print(f"[EV_CP_M] Registry status={resp.status_code} body={resp.text}")
+
+        if resp.status_code != 200:
+            return False
+
+        return True
+
+    except Exception as e:
+        print(f"[EV_CP_M] Error llamando a Registry (DELETE): {e}")
         return False
 
 
@@ -206,7 +247,8 @@ def menu_monitor(engine_addr, central_addr, cp_id):
         print("4. Simular RECUPERACIÓN Monitor")
         print("5. Verificar conexión con ENGINE")
         print("6. Reautenticar (obtener nueva clave)")
-        print("7. Salir")
+        print("7. Dar de baja CP)")
+        print("8. Salir")
         print("="*45)
 
         opcion = input("Seleccione una opción (1-6): ").strip()
@@ -249,8 +291,26 @@ def menu_monitor(engine_addr, central_addr, cp_id):
                 print("[EV_CP_M] Reautenticación correcta. Nueva clave guardada.")
             else:
                 print("[EV_CP_M] Reautenticación FALLIDA.")
-    
         elif opcion == "7":
+            ok = dar_baja_cp_en_registry(cp_id)
+            if ok:
+
+                cred = cargar_credencial(cp_id)
+                if cred and "id_cp_bd" in cred:
+                    host, port = parse_host_port(central_addr)   # central_addr = "127.0.0.1:7001"
+                    avisar_baja_a_central(host, port, cred["id_cp_bd"])
+                else:
+                    print("[EV_CP_M] No pude avisar a Central: falta credencial/id_cp_bd local")
+
+                borrar_clave_simetrica(cp_id)
+                borrar_credencial(cp_id)
+                print(f"[EV_CP_M] CP {cp_id} dado de baja. Queda fuera de servicio.")
+                return
+            else:
+                print("[EV_CP_M] No se pudo dar de baja.")
+
+
+        elif opcion == "8":
             print("[EV_CP_M] Saliendo del menú...")
             break
         else:
