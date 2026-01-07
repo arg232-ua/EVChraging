@@ -297,7 +297,7 @@ def menu_monitor(engine_addr, central_addr, cp_id):
 
                 cred = cargar_credencial(cp_id)
                 if cred and "id_cp_bd" in cred:
-                    host, port = parse_host_port(central_addr)   # central_addr = "127.0.0.1:7001"
+                    host, port = parse_host_port(central_addr) 
                     avisar_baja_a_central(host, port, cred["id_cp_bd"])
                 else:
                     print("[EV_CP_M] No pude avisar a Central: falta credencial/id_cp_bd local")

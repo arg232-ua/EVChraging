@@ -954,19 +954,16 @@ class EV_Central: # Clase Central (Principal para la práctica)
                 self.productor.flush()
                 print(f"[CENTRAL] Comando resolucion de contingenica enviado al CP {cp_id}")
             elif comando == "BAJA":
-                # Formato: BAJA <cp_id_bd>
                 now = time.strftime("%H:%M:%S")
                 print(f"[{now}] [CENTRAL] CP {cp_id} dado de baja en EV_Registry (activo=0).")
 
-                # Por seguridad, revoca clave en memoria si existiera
                 with self._lock:
                     if cp_id in self.cps and "clave_simetrica" in self.cps[cp_id]:
                         self.cps[cp_id].pop("clave_simetrica", None)    
 
-                    # Marca estado en memoria si quieres
                     self.cps.setdefault(cp_id, {})["estado"] = EST_DESC
 
-            else: # Si no se reconcoce el comando
+            else:
                 print(f"[CENTRAL] Comando de monitor NO reconocido: {linea!r}")
 
             

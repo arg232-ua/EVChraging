@@ -40,21 +40,47 @@ def obtener_consumidor(topico, grupo_id, servidor_kafka, auto_offset_reset="late
 def key_file(cp_id: str):
     return f"clave_simetrica_cp_{cp_id}.json"
 
+_key_cache = {}  # cp_id -> {"mtime": float, "key_hex": str}
+
 def cargar_clave_hex(cp_id: str):
+    path = key_file(cp_id)
     try:
-        with open(key_file(cp_id), "r", encoding="utf-8") as f:
+        mtime = os.path.getmtime(path)
+
+        cached = _key_cache.get(cp_id)
+        if cached and cached["mtime"] == mtime:
+            return cached["key_hex"]  # no ha cambiado el fichero
+
+        # ha cambiado (o no estaba cacheado): recargar
+        with open(path, "r", encoding="utf-8") as f:
             data = json.load(f)
+
         clave = data.get("clave") or data.get("clave_simetrica")
+        if not clave:
+            raise ValueError(f"Falta 'clave'/'clave_simetrica' en {path}")
+
+        # Validación mínima: token_hex(16) => 32 chars hex
+        clave = clave.strip()
+        if len(clave) != 32:
+            raise ValueError(f"Clave hex inválida (len={len(clave)}), esperado 32 en {path}")
+
+        # actualizo caché
+        _key_cache[cp_id] = {"mtime": mtime, "key_hex": clave}
+
+        print(f"[EV_CP_E][CRYPTO] 🔄 Key reloaded cp={cp_id} (mtime={mtime})")
         return clave
-    except Exception:
+
+    except Exception as e:
+        print(f"[EV_CP_E][CRYPTO] ERROR cargando clave cp={cp_id}: {e}")
         return None
+
 
 def cifrar_payload(cp_id: str, payload: dict) -> dict:
     clave_hex = cargar_clave_hex(cp_id)
     if not clave_hex:
         raise RuntimeError(f"CP {cp_id} sin clave simétrica local ({key_file(cp_id)})")
 
-    key = bytes.fromhex(clave_hex)      # tu central genera token_hex(16) => 16 bytes OK para AESGCM
+    key = bytes.fromhex(clave_hex)
     aesgcm = AESGCM(key)
     nonce = os.urandom(12)
 
